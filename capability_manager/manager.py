@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 from .catalog import Entry, load_catalog
 from .decision import CAPABILITY_REJECTION, SUPPLIED_MATERIAL, DecisionRouter, lexical_decision
-from .installer import Installer
+from .installer import Installer, check_static_skill
 from .mcp_bridge import connect, server_configs
 from .policy import Policy
 from .store import Store
@@ -145,12 +145,22 @@ class CapabilityManager:
 
     def search(self, task: str, context: str = "",
                session_id: Optional[str] = None,
-               turn_id: Optional[str] = None) -> Dict[str, Any]:
+               turn_id: Optional[str] = None,
+               static_only: bool = False) -> Dict[str, Any]:
         eligible = []
         unavailable = []
         for entry in self.catalog.values():
             try:
                 self.policy.check_entry(entry)
+                if static_only:
+                    if entry.source["type"] == "https_zip":
+                        continue
+                    if entry.source["type"] == "directory":
+                        source = (entry.catalog_path.parent / entry.source["path"]).resolve()
+                        try:
+                            check_static_skill(source)
+                        except (OSError, ValueError, PermissionError):
+                            continue
                 eligible.append(entry)
             except (PermissionError, ValueError) as exc:
                 unavailable.append({"id": entry.id, "reason": str(exc)})
@@ -217,6 +227,43 @@ class CapabilityManager:
             raise
         self.store.mark_decision(search["decision_id"], "activated")
         return {"status": "activated", "search": search, "capability": capability}
+
+    def resolve_static(self, task: str, session_id: str, context: str = "",
+                       turn_id: Optional[str] = None) -> Dict[str, Any]:
+        """Apply only skill text, without launching a bundled server or hook."""
+        search = self.search(task, context, session_id, turn_id, static_only=True)
+        chosen = search["recommendation"]
+        if not chosen:
+            self.store.mark_decision(search["decision_id"], "not_selected")
+            return {"status": "no_confident_match", "search": search}
+        try:
+            entry = self._entry(chosen)
+            if entry.source["type"] == "https_zip":
+                raise PermissionError("archive source needs separate review")
+            package = self.installer.install(entry)
+            check_static_skill(package)
+            paths = [package / "SKILL.md"] + sorted((package / "skills").glob("*/SKILL.md"))
+            skills = []
+            for path in paths:
+                if path.is_file():
+                    if path.stat().st_size > 30000:
+                        raise ValueError("skill instructions exceed the per-file limit")
+                    skills.append({"path": str(path.relative_to(package)),
+                                   "instructions": path.read_text(encoding="utf-8")})
+            if not skills:
+                raise ValueError("package has no skill instructions")
+            self.store.activate(session_id, chosen)
+        except PermissionError as exc:
+            self.store.mark_decision(search["decision_id"], "requires_review")
+            return {"status": "requires_review", "search": search,
+                    "capability_id": chosen, "reason": str(exc)}
+        except Exception:
+            self.store.mark_decision(search["decision_id"], "activation_failed")
+            raise
+        self.store.mark_decision(search["decision_id"], "activated")
+        return {"status": "activated", "search": search,
+                "capability": {"id": chosen, "kind": entry.kind, "skills": skills,
+                               "mcp_servers": {}, "connection_errors": []}}
 
     def activate(self, capability_id: str, session_id: str) -> Dict[str, Any]:
         if not session_id or len(session_id) > 200:

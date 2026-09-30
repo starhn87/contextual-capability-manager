@@ -10,8 +10,18 @@ from .manager import CapabilityManager
 
 TOOLS = [
     {
+        "name": "resolve_static_skill",
+        "description": "Default choice for a missing skill: search registered but uninstalled capabilities and return only bounded skill instructions. Never starts a plugin hook or MCP server. A pinned Git skill may be downloaded to the private cache. Use with the current session ID.",
+        "inputSchema": {"type": "object", "properties": {
+            "task": {"type": "string", "description": "Short capability gap description; omit source text, private data, and secrets."},
+            "session_id": {"type": "string"},
+            "turn_id": {"type": "string", "description": "Current turn ID from the prompt observer, when available."},
+            "context": {"type": "string", "description": "Short task type for ranking; omit private data and secrets."}},
+            "required": ["task", "session_id"], "additionalProperties": False},
+    },
+    {
         "name": "resolve_capability",
-        "description": "During a task, search even uninstalled capabilities, install an approved match, and return its skill instructions or MCP tools for immediate use. Call when the current tools or guidance are insufficient.",
+        "description": "For a task requiring an approved MCP server or executable plugin, search and activate a matching capability. This can start external tools, so use only when static skill guidance is insufficient and platform permission allows it.",
         "inputSchema": {"type": "object", "properties": {
             "task": {"type": "string", "description": "Short capability gap description; omit source text, private data, and secrets."}, "session_id": {"type": "string"},
             "turn_id": {"type": "string", "description": "Current turn ID from the prompt observer, when available."},
@@ -90,6 +100,9 @@ TOOLS = [
 
 
 def _dispatch(manager: CapabilityManager, name: str, args: Dict[str, Any]) -> Any:
+    if name == "resolve_static_skill":
+        return manager.resolve_static(args["task"], args["session_id"],
+                                      args.get("context", ""), args.get("turn_id"))
     if name == "resolve_capability":
         return manager.resolve(args["task"], args["session_id"], args.get("context", ""),
                                args.get("turn_id"))

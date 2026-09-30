@@ -246,6 +246,20 @@ class ManagerTests(unittest.TestCase):
         self.assertEqual(result["mcp_servers"]["mock"][0]["name"], "lookup")
         manager.release("session-a")
 
+    def test_static_resolver_never_starts_an_executable_plugin(self):
+        fixture = Fixture(self.temp.name, allow_exec=True)
+        package = fixture.add("notes-server", kind="plugin", execute=True,
+                              tags=["notes", "meeting"])
+        (package / "SKILL.md").write_text("Summarize notes.")
+        write_json(package / "mcp.json", {"mcpServers": {"mock": {
+            "type": "stdio", "command": "python3", "args": ["server.py"]}}})
+        (package / "server.py").write_text(MOCK_MCP)
+        manager = fixture.manager()
+        with patch.object(manager, "list_tools", side_effect=AssertionError("MCP must not start")):
+            result = manager.resolve_static("Use a plugin for meeting notes", "session-a")
+        self.assertEqual(result["status"], "no_confident_match")
+        self.assertFalse(manager.store.is_active("session-a", "notes-server"))
+
     def test_pinned_remote_source_registration_does_not_download(self):
         data = Path(self.temp.name) / "configured"
         result = register_source(

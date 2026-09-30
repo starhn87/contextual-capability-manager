@@ -26,8 +26,8 @@ def _check_directory(source: Path) -> None:
             raise ValueError("capability package contains a symlink")
 
 
-def _check_remote_skill(source: Path) -> None:
-    """Remote marketplace content is usable only as bounded, static skill text."""
+def check_static_skill(source: Path) -> None:
+    """Accept bounded skill text without executable plugin components."""
     if not source.is_dir():
         raise ValueError("git source subdirectory does not exist")
     if any((source / marker).exists() for marker in ("hooks", ".mcp.json", "mcp.json")):
@@ -78,7 +78,7 @@ def _fetch_git(source: dict, staging: Path) -> Path:
     package = (repository / source.get("subdir", "")).resolve()
     if not within(package, repository.resolve()):
         raise ValueError("git source subdirectory escapes checkout")
-    _check_remote_skill(package)
+    check_static_skill(package)
     return package
 
 

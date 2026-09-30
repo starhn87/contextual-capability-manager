@@ -1,6 +1,6 @@
 {
   "name": "contextual-capability-manager",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Discover and apply approved skills and MCP tools during a Claude Code task.",
   "author": {"name": "Local developer"}
 }

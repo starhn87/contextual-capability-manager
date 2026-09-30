@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from capability_manager.claude_catalog import discover
-from capability_manager.installer import _check_remote_skill, _fetch_git
+from capability_manager.installer import check_static_skill, _fetch_git
 from capability_manager.manager import CapabilityManager
 
 
@@ -49,7 +49,7 @@ class ClaudeCatalogTests(unittest.TestCase):
             self.assertIn("claude-team-remote-design", manager.catalog)
             self.assertNotIn("claude-team-untrusted-path", manager.catalog)
             self.assertEqual(manager.catalog_paths, [])
-            result = manager.resolve("Use a plugin for MDS design system components", "session")
+            result = manager.resolve_static("Use a plugin for MDS design system components", "session")
         self.assertEqual(result["status"], "activated")
         self.assertIn("Use MDS components", result["capability"]["skills"][0]["instructions"])
         self.assertFalse((self.root / "runtime/catalog.json").exists())
@@ -92,7 +92,7 @@ class ClaudeCatalogTests(unittest.TestCase):
         self.assertEqual((fetched / "SKILL.md").read_text(), "Use pinned guidance.")
         (fetched / "hooks").mkdir()
         with self.assertRaises(PermissionError):
-            _check_remote_skill(fetched)
+            check_static_skill(fetched)
 
 
 if __name__ == "__main__":
