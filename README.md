@@ -55,6 +55,8 @@ python3 -m capability_manager.cli catalog-add \
 
 `resolve_capability`은 선택한 후보뿐 아니라 **선택하지 않은 판단**도 기록하고 `decision_id`를 반환합니다. `search_capabilities`는 `session_id`를 함께 주면 판단을 기록합니다. 기록에는 판단기·모델, 후보 점수, 선택 결과, 필요성 확률·선택 신뢰도, 활성화 성공 여부가 포함됩니다.
 
+0.1.7부터 Codex·Claude 모두 같은 `capability_events` 형식으로 요청 관찰, 탐색, 지침 전달, 게이트웨이 도구 호출, 명시적 사용 결과, 정답 라벨, 세션 해제를 기록합니다. 각 이벤트에는 플랫폼·플러그인 버전·세션/판단 ID·상태가 있고 요청 원문과 도구 인수는 없습니다. 기존 DB에 테이블을 추가하며 이전 사용을 이벤트로 추정해 채우지는 않습니다. 두 플랫폼의 DB는 별개입니다. `python3 -m capability_manager.cli --data-dir <PLUGIN_DATA> event-report --days 30`으로 집계를, `events --session <세션 ID>`로 경로를 확인합니다. 관리자를 거치지 않은 네이티브 플러그인 사용이나 최종 답변의 실제 품질은 자동으로 관찰하지 않습니다.
+
 UserPromptSubmit 훅은 매 사용자 요청마다 **로컬 단어 매칭만** 실행해, 에이전트가 탐색을 건너뛴 경우까지 `prompt-observer` 판단으로 기록합니다. 요청 원문은 저장하거나 원격 결정 API로 보내지 않고 해시만 기록합니다. 명시적인 추가 능력 요청 또는 프로젝트 전용 작업에 분명한 후보가 있는 경우에만 짧은 후보 힌트를 모델에 전달합니다. 탐색 도구가 호출되면 같은 `turn_id`의 관찰 상태를 `searched`로 바꿉니다. 판단 보고서의 `prompt_observations`는 전체·탐색·미탐색 건수와 명시적으로 라벨링된 누락 건수를 보여줍니다. 라벨이 없는 미탐색 건수는 오판으로 간주하지 않습니다.
 
 에이전트가 원래 요청을 짧게 바꿔 도구에 전달해도, 같은 세션·턴의 로컬 관찰에서 이미 분명한 후보를 찾았다면 이를 재사용합니다. 후보가 여전히 작업 설명과 관련 있고 정책상 허용될 때에만 `prompt-observer-assisted`로 기록합니다. 명시적인 거절이나 요청에 자료가 이미 제공된 경우에는 재사용하지 않습니다.
@@ -65,6 +67,8 @@ CLI에서는 `decisions`, `feedback <decision_id> <정답> --session <session_id
 `record_capability_result`에는 회의록이나 작업 설명을 다시 보내지 않습니다. 서버가 세션에 저장된 프로젝트 키 또는 직전 판단의 맥락 키를 사용해 성공 여부를 기록합니다.
 
 `evals/cases.json`과 `evals/challenge.json`에는 합성 요청과 사람이 붙인 정답이 있습니다. `python3 -m capability_manager.evaluation`은 설치 없이 현재 로컬 판단기의 필요성 판정과 후보 선택을 평가합니다. `--cases`로 추가 사례집을 고르고 `--output`으로 JSON 결과를 저장할 수 있습니다. `--backend configured`는 `CAPMGR_DECIDER_URL`을 명시적으로 설정했을 때만 사용하며, 합성 요청을 해당 결정 서버로 전송합니다. 이 평가는 에이전트가 실제로 탐색 도구를 호출했는지, 설치가 성공했는지, 결과가 유용했는지는 측정하지 않습니다. 새 채팅과 실제 라벨 검증 절차는 [evals/README.md](evals/README.md)에 정리했습니다.
+
+Jev·Kev는 `python3 -m capability_manager.shadow --cases evals/cases.json`으로 먼저 로컬 기준선과 실행 계획만 확인합니다. 검토한 사례집과 승인 정책에 결정 서버를 설정한 뒤 `--allow-remote`를 붙여야 두 모델에 사례를 전송합니다. 비교 실행은 활성화나 설치를 바꾸지 않으며 모델별 정확도·누락·오선택과 총 지연 시간을 보고합니다. 서버가 실패해 로컬 fallback이 생긴 모델은 유효한 비교 결과로 표시하지 않습니다. 응답에서 비용 정보는 제공받지 않아 비용은 별도로 확인해야 합니다. 실사용 표본이 충분히 검토되기 전까지 이 비교만으로 자동 라우팅을 켜지 않습니다.
 
 ## 현재 범위
 

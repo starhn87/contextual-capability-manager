@@ -9,3 +9,4 @@ dist/
 *.log
 .DS_Store
 evals/runs/
+evals/*.local.json

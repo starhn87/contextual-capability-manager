@@ -1,5 +1,6 @@
 import hashlib
 import os
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -11,6 +12,7 @@ from .installer import Installer, check_static_skill
 from .mcp_bridge import connect, server_configs
 from .policy import Policy
 from .store import Store
+from . import __version__
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -29,6 +31,17 @@ def default_data_dir() -> Path:
 def default_config_dir() -> Path:
     return Path(os.environ.get("CAPMGR_CONFIG_DIR")
                 or str(Path.home() / ".config/contextual-capability-manager"))
+
+
+def runtime_platform() -> str:
+    explicit = os.environ.get("CAPMGR_PLATFORM", "")
+    if explicit in ("codex", "claude", "cli"):
+        return explicit
+    if os.environ.get("CLAUDE_PLUGIN_DATA"):
+        return "claude"
+    if os.environ.get("PLUGIN_DATA"):
+        return "codex"
+    return "cli"
 
 
 class CapabilityManager:
@@ -95,7 +108,7 @@ class CapabilityManager:
             for identifier, entry in discover().items():
                 self.catalog.setdefault(identifier, entry)
         self.installer = Installer(self.data_dir / "cache", self.policy)
-        self.store = Store(self.data_dir / "state.sqlite3")
+        self.store = Store(self.data_dir / "state.sqlite3", runtime_platform(), __version__)
         self.router = DecisionRouter(self.policy)
         self.connections = {}
         self.tool_catalogs = {}
@@ -139,6 +152,9 @@ class CapabilityManager:
             decision, decision["candidates"], "not_searched",
         )
         self.store.add_prompt_observation(turn_id, session_id, decision_id)
+        self.store.add_event(session_id, "prompt_observed", "recorded",
+                             turn_id=turn_id, decision_id=decision_id,
+                             capability_id=decision["recommendation"])
         return {"decision_id": decision_id, "turn_id": turn_id,
                 "suggested_capability_id": decision["recommendation"],
                 "need_reason": decision["need_reason"]}
@@ -164,7 +180,13 @@ class CapabilityManager:
                 eligible.append(entry)
             except (PermissionError, ValueError) as exc:
                 unavailable.append({"id": entry.id, "reason": str(exc)})
-        decision = self.router.rank(task, eligible, context)
+        try:
+            decision = self.router.rank(task, eligible, context)
+        except Exception as exc:
+            if session_id:
+                self.store.add_event(session_id, "capability_searched", "error",
+                                     turn_id=turn_id, error_type=type(exc).__name__)
+            raise
         indexed = {entry.id: entry for entry in eligible}
         if (session_id and turn_id and decision.get("backend") == "lexical"
                 and decision.get("recommendation") is None
@@ -207,6 +229,10 @@ class CapabilityManager:
                 session_id, result["context_key"], task_hash, task_text,
                 decision, decision["candidates"], "searched",
             )
+            self.store.add_event(session_id, "capability_searched",
+                                 "recommended" if decision["recommendation"] else "abstained",
+                                 turn_id=turn_id, decision_id=result["decision_id"],
+                                 capability_id=decision["recommendation"])
         return result
 
     def resolve(self, task: str, session_id: str, context: str = "",
@@ -255,12 +281,21 @@ class CapabilityManager:
             self.store.activate(session_id, chosen)
         except PermissionError as exc:
             self.store.mark_decision(search["decision_id"], "requires_review")
+            self.store.add_event(session_id, "activation_failed", "requires_review",
+                                 turn_id=turn_id, decision_id=search["decision_id"],
+                                 capability_id=chosen, error_type=type(exc).__name__)
             return {"status": "requires_review", "search": search,
                     "capability_id": chosen, "reason": str(exc)}
-        except Exception:
+        except Exception as exc:
             self.store.mark_decision(search["decision_id"], "activation_failed")
+            self.store.add_event(session_id, "activation_failed", "error",
+                                 turn_id=turn_id, decision_id=search["decision_id"],
+                                 capability_id=chosen, error_type=type(exc).__name__)
             raise
         self.store.mark_decision(search["decision_id"], "activated")
+        self.store.add_event(session_id, "capability_delivered", "static_skill",
+                             turn_id=turn_id, decision_id=search["decision_id"],
+                             capability_id=chosen)
         return {"status": "activated", "search": search,
                 "capability": {"id": chosen, "kind": entry.kind, "skills": skills,
                                "mcp_servers": {}, "connection_errors": []}}
@@ -268,27 +303,42 @@ class CapabilityManager:
     def activate(self, capability_id: str, session_id: str) -> Dict[str, Any]:
         if not session_id or len(session_id) > 200:
             raise ValueError("invalid session id")
-        entry = self._entry(capability_id)
-        package = self.installer.install(entry)
-        skills = []
-        paths = [package / "SKILL.md"] + sorted((package / "skills").glob("*/SKILL.md"))
-        for path in paths:
-            if path.is_file():
-                if path.stat().st_size > 30000:
-                    raise ValueError("skill instructions exceed the per-file limit")
-                skills.append({"path": str(path.relative_to(package)),
-                               "instructions": path.read_text(encoding="utf-8")})
-        servers = server_configs(package)
-        if not skills and not servers:
-            raise ValueError("installed package has no supported capability")
-        self.store.activate(session_id, capability_id)
-        output = {"id": capability_id, "kind": entry.kind, "skills": skills,
-                  "mcp_servers": {}, "connection_errors": []}
-        for name in servers:
-            try:
-                output["mcp_servers"][name] = self.list_tools(session_id, capability_id, name)
-            except Exception as exc:
-                output["connection_errors"].append({"server": name, "error": str(exc)})
+        started = time.monotonic()
+        decision_id = self.store.latest_decision_id(session_id, capability_id)
+        verified_id = None
+        try:
+            entry = self._entry(capability_id)
+            verified_id = entry.id
+            package = self.installer.install(entry)
+            skills = []
+            paths = [package / "SKILL.md"] + sorted((package / "skills").glob("*/SKILL.md"))
+            for path in paths:
+                if path.is_file():
+                    if path.stat().st_size > 30000:
+                        raise ValueError("skill instructions exceed the per-file limit")
+                    skills.append({"path": str(path.relative_to(package)),
+                                   "instructions": path.read_text(encoding="utf-8")})
+            servers = server_configs(package)
+            if not skills and not servers:
+                raise ValueError("installed package has no supported capability")
+            self.store.activate(session_id, capability_id)
+            output = {"id": capability_id, "kind": entry.kind, "skills": skills,
+                      "mcp_servers": {}, "connection_errors": []}
+            for name in servers:
+                try:
+                    output["mcp_servers"][name] = self.list_tools(session_id, capability_id, name)
+                except Exception as exc:
+                    output["connection_errors"].append({"server": name, "error": str(exc)})
+        except Exception as exc:
+            self.store.add_event(session_id, "activation_failed", "error",
+                                 decision_id=decision_id, capability_id=verified_id,
+                                 error_type=type(exc).__name__,
+                                 duration_ms=int((time.monotonic()-started)*1000))
+            raise
+        self.store.add_event(session_id, "capability_delivered",
+                             "gateway_partial" if output["connection_errors"] else "gateway",
+                             decision_id=decision_id, capability_id=capability_id,
+                             duration_ms=int((time.monotonic()-started)*1000))
         return output
 
     def _connection(self, session_id: str, capability_id: str, server_name: str):
@@ -317,28 +367,58 @@ class CapabilityManager:
 
     def invoke(self, session_id: str, capability_id: str, server_name: str,
                tool_name: str, arguments: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        tools = self.list_tools(session_id, capability_id, server_name)
-        selected = next((tool for tool in tools if tool.get("name") == tool_name), None)
-        if selected is None:
-            raise ValueError("tool was not advertised by the MCP server")
-        read_only = selected.get("annotations", {}).get("readOnlyHint") is True
-        self.policy.check_tool(capability_id, tool_name, read_only)
-        if arguments is not None and not isinstance(arguments, dict):
-            raise ValueError("tool arguments must be an object")
-        return self._connection(session_id, capability_id, server_name).request(
-            "tools/call", {"name": tool_name, "arguments": arguments or {}}
-        )
+        started = time.monotonic()
+        decision_id = self.store.latest_decision_id(session_id, capability_id)
+        verified_capability = None
+        verified_tool = None
+        try:
+            tools = self.list_tools(session_id, capability_id, server_name)
+            verified_capability = capability_id
+            selected = next((tool for tool in tools if tool.get("name") == tool_name), None)
+            if selected is None:
+                raise ValueError("tool was not advertised by the MCP server")
+            verified_tool = tool_name
+            read_only = selected.get("annotations", {}).get("readOnlyHint") is True
+            self.policy.check_tool(capability_id, tool_name, read_only)
+            if arguments is not None and not isinstance(arguments, dict):
+                raise ValueError("tool arguments must be an object")
+            result = self._connection(session_id, capability_id, server_name).request(
+                "tools/call", {"name": tool_name, "arguments": arguments or {}}
+            )
+        except Exception as exc:
+            self.store.add_event(session_id, "tool_call", "error",
+                                 decision_id=decision_id, capability_id=verified_capability,
+                                 tool_name=verified_tool,
+                                 error_type=type(exc).__name__,
+                                 duration_ms=int((time.monotonic()-started)*1000))
+            raise
+        self.store.add_event(session_id, "tool_call",
+                             "tool_error" if result.get("isError") else "completed",
+                             decision_id=decision_id, capability_id=capability_id,
+                             tool_name=tool_name,
+                             duration_ms=int((time.monotonic()-started)*1000))
+        return result
 
     def record_outcome(self, session_id: str, capability_id: str,
                        context: str = "", success: bool = False) -> Dict[str, Any]:
-        if not self.store.is_active(session_id, capability_id):
-            raise PermissionError("capability is not active in this session")
-        key = (self.store.session_context(session_id)
-               or self.store.latest_decision_context(session_id, capability_id)
-               or (context_key(context) if context else None))
-        if key is None:
-            raise ValueError("recording requires a session context or prior decision")
-        self.store.record(key, capability_id, session_id, success)
+        try:
+            if not self.store.is_active(session_id, capability_id):
+                raise PermissionError("capability is not active in this session")
+            key = (self.store.session_context(session_id)
+                   or self.store.latest_decision_context(session_id, capability_id)
+                   or (context_key(context) if context else None))
+            if key is None:
+                raise ValueError("recording requires a session context or prior decision")
+            self.store.record(key, capability_id, session_id, success)
+        except Exception as exc:
+            self.store.add_event(session_id, "outcome_reported", "rejected",
+                                 capability_id=capability_id if self.store.is_active(session_id, capability_id)
+                                 else None, error_type=type(exc).__name__)
+            raise
+        self.store.add_event(session_id, "outcome_reported",
+                             "reported_success" if success else "reported_failure",
+                             decision_id=self.store.latest_decision_id(session_id, capability_id),
+                             capability_id=capability_id)
         return {"recorded": True, "context_key": key,
                 "warm_for_context": capability_id in self.store.warm_ids(key)}
 
@@ -350,6 +430,9 @@ class CapabilityManager:
         if correct_capability_id not in ("none", "other") and correct_capability_id not in self.catalog:
             raise ValueError("correct capability must be a catalog id, none, or other")
         self.store.add_feedback(decision_id, correct_capability_id)
+        self.store.add_event(session_id, "feedback_recorded", "labeled",
+                             decision_id=decision_id,
+                             capability_id=correct_capability_id)
         predicted = decision["recommendation"] or "none"
         return {"decision_id": decision_id, "predicted": predicted,
                 "correct": correct_capability_id,
@@ -380,4 +463,11 @@ class CapabilityManager:
             if key[0] == session_id:
                 self.connections.pop(key).close()
                 self.tool_catalogs.pop(key, None)
-        return {"released": self.store.release(session_id)}
+        released = self.store.release(session_id)
+        self.store.add_event(session_id, "session_released", "completed")
+        return {"released": released}
+
+    def event_report(self, days: int = 30) -> Dict[str, Any]:
+        if not 1 <= days <= 365:
+            raise ValueError("days must be between 1 and 365")
+        return self.store.event_report(days)

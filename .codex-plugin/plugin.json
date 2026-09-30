@@ -1,6 +1,6 @@
 {
   "name": "contextual-capability-manager",
-  "version": "0.1.5+codex.20260930114310",
+  "version": "0.1.7+codex.20260930142846",
   "description": "Discover, install, and use approved agent skills and MCP tools during an active task.",
   "author": {
     "name": "Local developer"
@@ -15,6 +15,19 @@
     "capabilities": [],
     "defaultPrompt": "Use the capability manager if this task needs a skill or connector that is not available yet."
   },
-  "mcpServers": "./.mcp.json",
+  "mcpServers": {
+    "capability_manager": {
+      "type": "stdio",
+      "command": "python3",
+      "args": [
+        "-m",
+        "capability_manager.mcp_server"
+      ],
+      "cwd": "${PLUGIN_ROOT}",
+      "env": {
+        "CAPMGR_PLATFORM": "codex"
+      }
+    }
+  },
   "hooks": "./hooks/hooks.json"
 }

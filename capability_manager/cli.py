@@ -63,6 +63,12 @@ def main() -> None:
     decisions.add_argument("--all", action="store_true")
     report = sub.add_parser("report")
     report.add_argument("--days", type=int, default=30)
+    events = sub.add_parser("events")
+    events.add_argument("--days", type=int, default=30)
+    events.add_argument("--limit", type=int, default=100)
+    events.add_argument("--session")
+    event_report = sub.add_parser("event-report")
+    event_report.add_argument("--days", type=int, default=30)
     prefetch = sub.add_parser("prefetch")
     prefetch.add_argument("context")
     release = sub.add_parser("release")
@@ -100,6 +106,12 @@ def main() -> None:
         result = manager.list_decisions(args.days, args.limit, not args.all)
     elif args.command == "report":
         result = manager.decision_report(args.days)
+    elif args.command == "events":
+        if not 1 <= args.days <= 365 or not 1 <= args.limit <= 500:
+            raise ValueError("invalid event list range")
+        result = {"events": manager.store.events(args.days, args.limit, args.session)}
+    elif args.command == "event-report":
+        result = manager.event_report(args.days)
     elif args.command == "prefetch":
         result = manager.prefetch(args.context)
     else:

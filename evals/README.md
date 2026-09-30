@@ -24,7 +24,7 @@ python3 -m unittest discover -s tests -v
 python3 scripts/run_live_codex_eval.py --repeat 2
 ```
 
-`report.json`은 훅 관찰, 에이전트의 관리자 도구 호출 시도, 승인 거부, 탐색, 활성화를 따로 집계합니다. 훅이 관찰되지 않은 실행은 모델의 탐색 실패로 계산하지 않습니다. 비대화형 CLI의 기본 승인 정책은 MCP 호출을 거부할 수 있으므로, `manager_tool_approval_denials`가 있으면 활성화 실패를 모델의 판단 실패로 해석하지 않습니다. 격리된 테스트 DB 환경 변수는 Codex가 MCP 서버로 전달하지 않을 수 있습니다. `unbound_manager_searches`가 있으면 훅과 MCP 서버가 서로 다른 상태 DB를 사용했으므로 같은 턴 판단 재사용과 활성 권한 해제를 이 실행으로 검증할 수 없습니다. 긍정 사례의 활성화 여부는 사용 성공이나 답변 품질을 뜻하지 않으므로 이벤트 로그와 최종 답변도 확인해야 합니다. Claude Code는 현재 이 환경에 CLI가 없어 실환경 반복 검증 대상에 포함되지 않았습니다.
+`report.json`은 훅 관찰, 에이전트의 관리자 도구 호출 시도, 승인 거부, 탐색, 활성화를 따로 집계합니다. 훅이 관찰되지 않은 실행은 모델의 탐색 실패로 계산하지 않습니다. 비대화형 CLI의 기본 승인 정책은 MCP 호출을 거부할 수 있으므로, `manager_tool_approval_denials`가 있으면 활성화 실패를 모델의 판단 실패로 해석하지 않습니다. 격리된 테스트 DB 환경 변수는 Codex가 MCP 서버로 전달하지 않을 수 있습니다. `unbound_manager_searches`가 있으면 훅과 MCP 서버가 서로 다른 상태 DB를 사용했으므로 같은 턴 판단 재사용과 활성 권한 해제를 이 실행으로 검증할 수 없습니다. 긍정 사례의 활성화 여부는 사용 성공이나 답변 품질을 뜻하지 않으므로 이벤트 로그와 최종 답변도 확인해야 합니다. 이 스크립트는 Codex 전용이며 Claude Code는 별도로 검증합니다.
 
 플러그인 패키지가 바뀌면 새 채팅에서 아래 요청을 각각 시험하고 도구 호출, 설치 결과, 최종 답변을 확인합니다. 현재 기본 카탈로그에는 `note-summarizer`만 있으므로 다른 능력의 실제 설치 검증에는 승인된 시험용 카탈로그가 필요합니다.
 
@@ -44,8 +44,27 @@ python3 scripts/run_live_codex_eval.py --repeat 2
 python3 -m capability_manager.cli --data-dir <PLUGIN_DATA> decisions --days 30
 python3 -m capability_manager.cli --data-dir <PLUGIN_DATA> feedback <decision_id> <ID|none|other> --session <session_id>
 python3 -m capability_manager.cli --data-dir <PLUGIN_DATA> report --days 30
+python3 -m capability_manager.cli --data-dir <PLUGIN_DATA> event-report --days 30
+python3 -m capability_manager.cli --data-dir <PLUGIN_DATA> events --session <session_id>
 ```
 
 선택된 판단과 `not_searched`를 모두 표본 추출해 원래 채팅을 보며 라벨을 붙입니다. 기본 기록은 요청 원문을 저장하지 않으므로 나중에 해시만으로 정답을 복원할 수 없습니다. 모든 자동 선택·실패는 검토하고, 미탐색 건도 무작위로 뽑아야 누락률의 편향을 줄일 수 있습니다. 설치 성공과 정답 라벨은 별개입니다.
+
+Codex와 Claude의 `PLUGIN_DATA`는 별개이므로 두 DB를 각각 조회합니다. 0.1.7 이후의 `capability_events`에는 `platform`과 `plugin_version`이 들어갑니다. `capability_delivered`는 지침이나 게이트웨이가 전달됐다는 뜻이며 실제 작업 성공의 증거가 아닙니다. `tool_call`에는 도구 이름·상태·지연 시간만 기록하고 인수와 응답은 저장하지 않습니다. 직접 설치한 네이티브 플러그인의 사용은 이 DB에서 알 수 없습니다.
+
+## 4. Jev·Kev 비교 실행
+
+실제 채팅을 검토한 뒤 개인정보와 내부 내용을 제거한 사례만 `evals/real-reviewed.local.json`에 수동으로 작성합니다. 이 파일은 Git에서 제외됩니다. `evals/cases.json` 형식으로 `capabilities`에 당시 비교할 후보의 메타데이터를, 각 `cases`에 익명화한 `prompt`, `expected`(`ID`, `none`, `other`), `available_ids`를 넣습니다. 전체 후보 집합을 공정하게 반영하고, 정답 후보를 빠뜨리지 않도록 확인합니다. 원문이 없는 기존 로그에서 요청을 임의로 재구성하지 않습니다.
+
+```bash
+python3 -m capability_manager.shadow --cases evals/real-reviewed.local.json
+CAPMGR_DECIDER_URL=https://<승인된 호스트>/v1/systemone \
+  python3 -m capability_manager.shadow \
+  --cases evals/real-reviewed.local.json --policy <승인 정책 JSON> \
+  --models jev-latest kev-latest --allow-remote \
+  --output /private/tmp/capability-shadow.json
+```
+
+첫 명령은 원격 요청 없이 기준선만 출력합니다. 두 번째 명령은 사례의 `prompt`와 후보 메타데이터를 설정된 서버에 보냅니다. 정책의 `decision_hosts`가 호스트를 허용해야 하고 인증 토큰을 쓰면 `allowed_secret_env`도 설정해야 합니다. 결과의 `status=evaluated`만 모델 비교에 사용합니다. `backend_unavailable`은 timeout·잘못된 응답·fallback이 포함된 결과입니다. 비용 사용량은 현재 결정 API 응답에서 받지 못합니다. 충분한 실사용 라벨에서 잘못된 자동 선택, 누락, 지연 시간, 실제 비용을 비교한 뒤에만 실사용 모델을 수동 설정합니다. 이 도구는 설치 정책이나 실사용 라우팅을 변경하지 않습니다.
 
 개선할 때는 오판을 필요성 판단, 후보 선택, 정책·인증, 설치·호출, 답변 품질로 나누고 한 단계씩 수정합니다. 새 사례를 평가집에 추가한 뒤 두 집합과 단위·통합 테스트를 다시 실행합니다. 실제 라벨의 표본 수와 오류 유형이 충분히 쌓이기 전에는 합성 사례 점수만으로 자동 활성화 범위를 넓히지 않습니다.

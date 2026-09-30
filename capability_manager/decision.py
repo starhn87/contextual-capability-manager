@@ -2,7 +2,7 @@ import json
 import os
 import re
 from urllib.request import Request
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from .catalog import Entry
@@ -108,10 +108,10 @@ def lexical_decision(task: str, entries: List[Entry], context: str = "") -> Dict
 class DecisionRouter:
     """Optional Jev/System One ranking; policy checks remain deterministic."""
 
-    def __init__(self, policy: Policy):
+    def __init__(self, policy: Policy, model: Optional[str] = None):
         self.policy = policy
         self.url = os.environ.get("CAPMGR_DECIDER_URL", "").strip()
-        self.model = os.environ.get("CAPMGR_DECIDER_MODEL", "jev-latest")
+        self.model = model or os.environ.get("CAPMGR_DECIDER_MODEL", "jev-latest")
         self.key_env = os.environ.get("CAPMGR_DECIDER_KEY_ENV", "TYPESAFE_API_KEY")
 
     def rank(self, task: str, entries: List[Entry], context: str = "") -> Dict[str, object]:

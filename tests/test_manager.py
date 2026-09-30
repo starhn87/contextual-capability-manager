@@ -106,6 +106,44 @@ class ManagerTests(unittest.TestCase):
         self.assertFalse(manager.store.is_active("session-a", "notes-skill"))
         self.assertTrue(manager.installer.package_path(manager.catalog["notes-skill"]).is_dir())
 
+    def test_manager_events_trace_delivery_without_prompt_or_tool_arguments(self):
+        fixture = Fixture(self.temp.name)
+        package = fixture.add("notes-skill")
+        (package / "SKILL.md").write_text("Summarize notes.")
+        with patch.dict(os.environ, {"CAPMGR_PLATFORM": "claude"}):
+            manager = fixture.manager()
+        manager.bind_session_context("session-a", "/private/project")
+        manager.observe_prompt("Use a skill for secret meeting notes", "session-a", "turn-a")
+        result = manager.resolve_static("Use a skill to summarize meeting notes",
+                                        "session-a", turn_id="turn-a")
+        self.assertEqual(result["status"], "activated")
+        manager.record_outcome("session-a", "notes-skill", success=True)
+        manager.release("session-a")
+        events = list(reversed(manager.store.events(session_id="session-a")))
+        self.assertEqual([event["event_type"] for event in events], [
+            "prompt_observed", "capability_searched", "capability_delivered",
+            "outcome_reported", "session_released"])
+        self.assertEqual(events[2]["status"], "static_skill")
+        self.assertTrue(all(event["platform"] == "claude" for event in events))
+        self.assertTrue(all(event["plugin_version"] for event in events))
+        self.assertNotIn("secret meeting notes", json.dumps(events))
+        self.assertEqual(manager.event_report()["events"], 5)
+
+    def test_older_store_gains_event_table_without_losing_decisions(self):
+        path = Path(self.temp.name) / "old.sqlite3"
+        with sqlite3.connect(str(path)) as db:
+            db.execute("CREATE TABLE decisions(id TEXT PRIMARY KEY, session_id TEXT, "
+                       "context_key TEXT, task_hash TEXT, task_text TEXT, backend TEXT, "
+                       "model TEXT, recommendation TEXT, candidates_json TEXT, "
+                       "need_probability REAL, confidence REAL, activation_status TEXT, "
+                       "created_at INTEGER)")
+            db.execute("INSERT INTO decisions VALUES('old','s','c','h',NULL,'lexical',NULL,"
+                       "NULL,'[]',0,0,'searched',1)")
+        store = Store(path, "codex", "0.1.7")
+        store.add_event("s", "capability_searched", "abstained", decision_id="old")
+        self.assertEqual(store.get_decision("old")["id"], "old")
+        self.assertEqual(store.event_report()["groups"][0]["platform"], "codex")
+
     def test_releasing_one_session_preserves_another(self):
         fixture = Fixture(self.temp.name)
         package = fixture.add("notes-skill")
@@ -116,6 +154,18 @@ class ManagerTests(unittest.TestCase):
         manager.release("session-a")
         self.assertFalse(manager.store.is_active("session-a", "notes-skill"))
         self.assertTrue(manager.store.is_active("session-b", "notes-skill"))
+
+    def test_rejected_outcome_is_visible_without_counting_as_success(self):
+        fixture = Fixture(self.temp.name)
+        package = fixture.add("notes-skill")
+        (package / "SKILL.md").write_text("Summarize notes.")
+        manager = fixture.manager()
+        manager.activate("notes-skill", "session-a")
+        with self.assertRaises(ValueError):
+            manager.record_outcome("session-a", "notes-skill", success=True)
+        self.assertEqual(manager.store.events(session_id="session-a")[0]["status"], "rejected")
+        self.assertEqual(manager.store.event_report()["events"], 2)
+        self.assertEqual(manager.store.warm_ids(context_key("")), [])
 
     def test_project_context_binding_keeps_prefetch_key_stable(self):
         fixture = Fixture(self.temp.name)
@@ -370,13 +420,18 @@ class ManagerTests(unittest.TestCase):
         manager = fixture.manager()
         result = manager.activate("mock-plugin", "session-b")
         self.assertEqual(result["mcp_servers"]["mock"][0]["name"], "lookup")
-        value = manager.invoke("session-b", "mock-plugin", "mock", "lookup", {"key": "abc"})
-        self.assertEqual(value["content"][0]["text"], "found:abc")
+        value = manager.invoke("session-b", "mock-plugin", "mock", "lookup",
+                               {"key": "private-input"})
+        self.assertEqual(value["content"][0]["text"], "found:private-input")
         manager.tool_catalogs[("session-b", "mock-plugin", "mock")][0]["annotations"]["readOnlyHint"] = False
         with self.assertRaises(PermissionError):
             manager.invoke("session-b", "mock-plugin", "mock", "lookup", {"key": "abc"})
         with self.assertRaises(PermissionError):
             manager.invoke("session-b", "mock-plugin", "mock", "delete", {"key": "abc"})
+        events = manager.store.events(session_id="session-b")
+        calls = [event for event in events if event["event_type"] == "tool_call"]
+        self.assertEqual([event["status"] for event in calls], ["error", "error", "completed"])
+        self.assertNotIn("private-input", json.dumps(events))
         self.assertEqual(manager.release("session-b")["released"], ["mock-plugin"])
 
     def test_unapproved_executable_is_not_installed(self):
@@ -564,6 +619,7 @@ class ManagerTests(unittest.TestCase):
         names = {item["name"] for item in listed["result"]["tools"]}
         self.assertIn("record_decision_feedback", names)
         self.assertIn("capability_decision_report", names)
+        self.assertIn("capability_event_report", names)
         called = handle(manager, {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
                                   "params": {"name": "resolve_capability", "arguments": {
                                       "task": "need a skill to summarize meeting notes", "session_id": "thread-1"}}})
@@ -585,6 +641,9 @@ class ManagerTests(unittest.TestCase):
                                         "session_id": "thread-1", "capability_id": "notes-skill",
                                         "success": True}}})
         self.assertTrue(json.loads(recorded["result"]["content"][0]["text"])["recorded"])
+        trace = handle(manager, {"jsonrpc": "2.0", "id": 6, "method": "tools/call",
+                                 "params": {"name": "capability_event_report", "arguments": {}}})
+        self.assertGreaterEqual(json.loads(trace["result"]["content"][0]["text"])["events"], 3)
 
     def test_mcp_stdio_process_resolves_during_same_conversation(self):
         fixture = Fixture(self.temp.name)

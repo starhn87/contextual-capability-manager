@@ -91,6 +91,14 @@ TOOLS = [
         "annotations": {"readOnlyHint": True},
     },
     {
+        "name": "capability_event_report",
+        "description": "Count manager-mediated prompt, selection, delivery, tool, outcome, and release events by platform and version. This contains no prompt text or tool arguments.",
+        "inputSchema": {"type": "object", "properties": {
+            "days": {"type": "integer", "minimum": 1, "maximum": 365}},
+            "additionalProperties": False},
+        "annotations": {"readOnlyHint": True},
+    },
+    {
         "name": "release_capability_session",
         "description": "Revoke temporary capabilities for a completed session while retaining cached packages.",
         "inputSchema": {"type": "object", "properties": {"session_id": {"type": "string"}},
@@ -125,6 +133,8 @@ def _dispatch(manager: CapabilityManager, name: str, args: Dict[str, Any]) -> An
                                       args.get("pending_only", True))
     if name == "capability_decision_report":
         return manager.decision_report(args.get("days", 30))
+    if name == "capability_event_report":
+        return manager.event_report(args.get("days", 30))
     if name == "release_capability_session":
         return manager.release(args["session_id"])
     raise ValueError("unknown tool: " + name)

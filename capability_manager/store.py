@@ -7,9 +7,12 @@ from typing import Any, Dict, List, Optional
 
 
 class Store:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, platform: str = "unknown",
+                 plugin_version: str = "unknown"):
         path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
+        self.platform = platform
+        self.plugin_version = plugin_version
         with self._connect() as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS active (
@@ -56,6 +59,23 @@ class Store:
                     decision_id TEXT NOT NULL REFERENCES decisions(id),
                     created_at INTEGER NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS capability_events (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    turn_id TEXT,
+                    decision_id TEXT,
+                    capability_id TEXT,
+                    event_type TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    platform TEXT NOT NULL,
+                    plugin_version TEXT NOT NULL,
+                    tool_name TEXT,
+                    error_type TEXT,
+                    duration_ms INTEGER,
+                    created_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS capability_events_session
+                    ON capability_events(session_id, created_at);
             """)
             columns = {row[1] for row in db.execute("PRAGMA table_info(outcomes)")}
             if "session_id" not in columns:
@@ -68,6 +88,46 @@ class Store:
         db = sqlite3.connect(str(self.path), timeout=10)
         db.execute("PRAGMA journal_mode=WAL")
         return db
+
+    def add_event(self, session_id: str, event_type: str, status: str,
+                  turn_id: Optional[str] = None, decision_id: Optional[str] = None,
+                  capability_id: Optional[str] = None, tool_name: Optional[str] = None,
+                  error_type: Optional[str] = None,
+                  duration_ms: Optional[int] = None) -> str:
+        allowed = {"prompt_observed", "capability_searched", "capability_delivered",
+                   "activation_failed", "tool_call", "outcome_reported",
+                   "feedback_recorded", "session_released"}
+        if event_type not in allowed or not session_id:
+            raise ValueError("invalid capability event")
+        identifier = uuid.uuid4().hex
+        with self._connect() as db:
+            db.execute("""INSERT INTO capability_events VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       (identifier, session_id, turn_id, decision_id, capability_id,
+                        event_type, status, self.platform, self.plugin_version,
+                        tool_name, error_type, duration_ms, int(time.time())))
+        return identifier
+
+    def events(self, days: int = 30, limit: int = 100,
+               session_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        since = int(time.time()) - days * 86400
+        with self._connect() as db:
+            db.row_factory = sqlite3.Row
+            rows = db.execute("""SELECT * FROM capability_events
+                WHERE created_at>=? AND (? IS NULL OR session_id=?)
+                ORDER BY created_at DESC, rowid DESC LIMIT ?""",
+                (since, session_id, session_id, limit)).fetchall()
+        return [dict(row) for row in rows]
+
+    def event_report(self, days: int = 30) -> Dict[str, Any]:
+        since = int(time.time()) - days * 86400
+        with self._connect() as db:
+            rows = db.execute("""SELECT platform, plugin_version, event_type, status,
+                COUNT(*) FROM capability_events WHERE created_at>=?
+                GROUP BY platform, plugin_version, event_type, status""", (since,)).fetchall()
+        return {"days": days, "events": sum(row[4] for row in rows),
+                "groups": [{"platform": platform, "plugin_version": version,
+                            "event_type": event_type, "status": status, "count": count}
+                           for platform, version, event_type, status, count in rows]}
 
     def activate(self, session_id: str, capability_id: str) -> None:
         with self._connect() as db:
@@ -143,6 +203,15 @@ class Store:
             row = db.execute(
                 """SELECT context_key FROM decisions
                    WHERE session_id=? AND recommendation=?
+                   ORDER BY created_at DESC, rowid DESC LIMIT 1""",
+                (session_id, capability_id),
+            ).fetchone()
+        return row[0] if row else None
+
+    def latest_decision_id(self, session_id: str, capability_id: str) -> Optional[str]:
+        with self._connect() as db:
+            row = db.execute(
+                """SELECT id FROM decisions WHERE session_id=? AND recommendation=?
                    ORDER BY created_at DESC, rowid DESC LIMIT 1""",
                 (session_id, capability_id),
             ).fetchone()

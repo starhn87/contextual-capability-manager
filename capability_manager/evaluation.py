@@ -4,7 +4,7 @@ import argparse
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from . import __version__
 from .catalog import Entry
@@ -125,14 +125,15 @@ def score_cases(cases: List[Dict[str, Any]], decisions: List[Dict[str, Any]]) ->
 
 
 def run(path: Path = DEFAULT_CASES, backend: str = "lexical",
-        policy_path: Path = ROOT / "examples/policy.json") -> Dict[str, Any]:
+        policy_path: Path = ROOT / "examples/policy.json",
+        model: Optional[str] = None) -> Dict[str, Any]:
     dataset = load_cases(path)
     entries = _entries(dataset["capabilities"], path)
     if backend not in ("lexical", "configured"):
         raise ValueError("backend must be lexical or configured")
     if backend == "configured" and not os.environ.get("CAPMGR_DECIDER_URL"):
         raise ValueError("configured backend requires CAPMGR_DECIDER_URL")
-    router = DecisionRouter(Policy.load(policy_path)) if backend == "configured" else None
+    router = DecisionRouter(Policy.load(policy_path), model=model) if backend == "configured" else None
     decisions = []
     for case in dataset["cases"]:
         available = case.get("available_ids", list(entries))
@@ -147,6 +148,8 @@ def run(path: Path = DEFAULT_CASES, backend: str = "lexical",
     except ValueError:
         result["dataset"] = str(resolved)
     result["backend"] = backend
+    if router:
+        result["model"] = router.model
     result["version"] = __version__
     result["decision_backends"] = sorted({item.get("backend", "unknown") for item in decisions})
     return result
