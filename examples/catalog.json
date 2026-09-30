@@ -1,0 +1,15 @@
+{
+  "capabilities": [
+    {
+      "id": "note-summarizer",
+      "name": "Note summarizer",
+      "description": "Summarize meeting notes and identify decisions and action items.",
+      "kind": "skill",
+      "publisher": "local-demo",
+      "version": "1.0.0",
+      "tags": ["notes", "meeting", "summary", "action items", "회의록", "요약"],
+      "source": {"type": "directory", "path": "packages/note-summarizer"},
+      "permissions": {}
+    }
+  ]
+}

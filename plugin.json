@@ -1,0 +1,18 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "contextual-capability-manager",
+  "version": "0.1.3",
+  "description": "Discover, install, and use approved agent skills and MCP tools during an active task.",
+  "extensions": {
+    "com.openai": {
+      "hooks": "./hooks/hooks.json",
+      "interface": {
+        "displayName": "Contextual Capability Manager",
+        "shortDescription": "Add approved capabilities while an agent works.",
+        "longDescription": "Finds uninstalled skills, plugins, and connectors, applies approved capabilities through a session-scoped MCP gateway, and learns which packages to keep warm.",
+        "developerName": "Local developer",
+        "category": "Productivity"
+      }
+    }
+  }
+}

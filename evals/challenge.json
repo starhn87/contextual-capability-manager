@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "description": "Additional manually labeled challenge prompts for routing regressions.",
+  "capabilities_from": "cases.json",
+  "cases": [
+    {
+      "id": "challenge-ticket-implicit",
+      "category": "indirect",
+      "prompt": "Show the assignee and status of issue XYZ-9 in our workspace tracker.",
+      "expected": "ticket-lookup"
+    },
+    {
+      "id": "challenge-meeting-implicit",
+      "category": "indirect",
+      "prompt": "지난 회의의 결정사항을 우리 팀 표준 회의록 양식에 맞춰 정리해줘.",
+      "expected": "meeting-brief"
+    },
+    {
+      "id": "challenge-incident-implicit",
+      "category": "indirect",
+      "prompt": "Follow the company incident playbook and prepare a severity handoff summary.",
+      "expected": "incident-playbook"
+    },
+    {
+      "id": "challenge-explain-playbook",
+      "category": "negative",
+      "prompt": "Our incident playbook is outdated. Explain what a playbook is in general.",
+      "expected": "none"
+    },
+    {
+      "id": "challenge-translate-ticket",
+      "category": "negative",
+      "prompt": "Translate the phrase 'current ticket status' into Korean.",
+      "expected": "none"
+    },
+    {
+      "id": "challenge-supplied-ticket",
+      "category": "negative",
+      "prompt": "I already pasted the ticket status and assignee below. Summarize these two lines.",
+      "expected": "none"
+    },
+    {
+      "id": "challenge-generic-template",
+      "category": "negative",
+      "prompt": "Suggest a generic meeting brief template from your own knowledge.",
+      "expected": "none"
+    },
+    {
+      "id": "challenge-no-lookup",
+      "category": "negative",
+      "prompt": "Do not look up ticket ABC-12. Just explain what a status code means.",
+      "expected": "none"
+    },
+    {
+      "id": "challenge-provided-template",
+      "category": "negative",
+      "prompt": "Use our required meeting brief format pasted below and fill it from these notes.",
+      "expected": "none"
+    },
+    {
+      "id": "challenge-provided-ticket",
+      "category": "negative",
+      "prompt": "Use our current ticket status and assignee pasted below to summarize the handoff.",
+      "expected": "none"
+    },
+    {
+      "id": "challenge-explain-design",
+      "category": "negative",
+      "prompt": "Explain how our design system tokens are named based on this excerpt.",
+      "expected": "none"
+    }
+  ]
+}

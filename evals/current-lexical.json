@@ -1,0 +1,436 @@
+{
+  "metrics": {
+    "cases": 16,
+    "need_true_positives": 12,
+    "need_false_positives": 0,
+    "need_false_negatives": 0,
+    "need_true_negatives": 4,
+    "correct_selection": 16,
+    "false_activations": 0,
+    "missed_capabilities": 0,
+    "wrong_capabilities": 0,
+    "unknown_autoselections": 0,
+    "unknown_need_detected": 2,
+    "need_precision": 1.0,
+    "need_recall": 1.0,
+    "selection_accuracy": 1.0,
+    "known_capability_accuracy": 1.0
+  },
+  "by_category": {
+    "direct": {
+      "cases": 5,
+      "correct_selection": 5,
+      "need_detected": 5
+    },
+    "indirect": {
+      "cases": 5,
+      "correct_selection": 5,
+      "need_detected": 5
+    },
+    "negative": {
+      "cases": 4,
+      "correct_selection": 4,
+      "need_detected": 0
+    },
+    "unknown": {
+      "cases": 2,
+      "correct_selection": 2,
+      "need_detected": 2
+    }
+  },
+  "cases": [
+    {
+      "id": "direct-meeting-en",
+      "category": "direct",
+      "expected": "meeting-brief",
+      "recommendation": "meeting-brief",
+      "predicted_need": true,
+      "need_probability": 1.0,
+      "confidence": 1.0,
+      "correct_selection": true,
+      "candidates": [
+        {
+          "id": "meeting-brief",
+          "score": 15.0
+        },
+        {
+          "id": "incident-playbook",
+          "score": 2.0
+        },
+        {
+          "id": "design-system",
+          "score": 1.0
+        },
+        {
+          "id": "ticket-lookup",
+          "score": 1.0
+        }
+      ]
+    },
+    {
+      "id": "direct-meeting-ko",
+      "category": "direct",
+      "expected": "meeting-brief",
+      "recommendation": "meeting-brief",
+      "predicted_need": true,
+      "need_probability": 1.0,
+      "confidence": 1.0,
+      "correct_selection": true,
+      "candidates": [
+        {
+          "id": "meeting-brief",
+          "score": 6.0
+        },
+        {
+          "id": "ticket-lookup",
+          "score": 2.0
+        }
+      ]
+    },
+    {
+      "id": "direct-incident",
+      "category": "direct",
+      "expected": "incident-playbook",
+      "recommendation": "incident-playbook",
+      "predicted_need": true,
+      "need_probability": 1.0,
+      "confidence": 1.0,
+      "correct_selection": true,
+      "candidates": [
+        {
+          "id": "incident-playbook",
+          "score": 13.0
+        },
+        {
+          "id": "meeting-brief",
+          "score": 3.0
+        },
+        {
+          "id": "design-system",
+          "score": 2.0
+        },
+        {
+          "id": "ticket-lookup",
+          "score": 2.0
+        }
+      ]
+    },
+    {
+      "id": "direct-ticket",
+      "category": "direct",
+      "expected": "ticket-lookup",
+      "recommendation": "ticket-lookup",
+      "predicted_need": true,
+      "need_probability": 1.0,
+      "confidence": 1.0,
+      "correct_selection": true,
+      "candidates": [
+        {
+          "id": "ticket-lookup",
+          "score": 12.0
+        },
+        {
+          "id": "incident-playbook",
+          "score": 3.0
+        },
+        {
+          "id": "meeting-brief",
+          "score": 3.0
+        },
+        {
+          "id": "design-system",
+          "score": 1.0
+        }
+      ]
+    },
+    {
+      "id": "direct-design",
+      "category": "direct",
+      "expected": "design-system",
+      "recommendation": "design-system",
+      "predicted_need": true,
+      "need_probability": 1.0,
+      "confidence": 1.0,
+      "correct_selection": true,
+      "candidates": [
+        {
+          "id": "design-system",
+          "score": 12.0
+        },
+        {
+          "id": "incident-playbook",
+          "score": 3.0
+        },
+        {
+          "id": "meeting-brief",
+          "score": 2.0
+        },
+        {
+          "id": "ticket-lookup",
+          "score": 2.0
+        }
+      ]
+    },
+    {
+      "id": "indirect-meeting-en",
+      "category": "indirect",
+      "expected": "meeting-brief",
+      "recommendation": "meeting-brief",
+      "predicted_need": true,
+      "need_probability": 1.0,
+      "confidence": 1.0,
+      "correct_selection": true,
+      "candidates": [
+        {
+          "id": "meeting-brief",
+          "score": 14.0
+        },
+        {
+          "id": "design-system",
+          "score": 1.0
+        },
+        {
+          "id": "incident-playbook",
+          "score": 1.0
+        },
+        {
+          "id": "ticket-lookup",
+          "score": 1.0
+        }
+      ]
+    },
+    {
+      "id": "indirect-meeting-ko",
+      "category": "indirect",
+      "expected": "meeting-brief",
+      "recommendation": "meeting-brief",
+      "predicted_need": true,
+      "need_probability": 1.0,
+      "confidence": 1.0,
+      "correct_selection": true,
+      "candidates": [
+        {
+          "id": "meeting-brief",
+          "score": 7.0
+        },
+        {
+          "id": "ticket-lookup",
+          "score": 2.0
+        }
+      ]
+    },
+    {
+      "id": "indirect-incident",
+      "category": "indirect",
+      "expected": "incident-playbook",
+      "recommendation": "incident-playbook",
+      "predicted_need": true,
+      "need_probability": 1.0,
+      "confidence": 1.0,
+      "correct_selection": true,
+      "candidates": [
+        {
+          "id": "incident-playbook",
+          "score": 14.0
+        },
+        {
+          "id": "design-system",
+          "score": 2.0
+        },
+        {
+          "id": "meeting-brief",
+          "score": 2.0
+        },
+        {
+          "id": "ticket-lookup",
+          "score": 2.0
+        }
+      ]
+    },
+    {
+      "id": "indirect-ticket",
+      "category": "indirect",
+      "expected": "ticket-lookup",
+      "recommendation": "ticket-lookup",
+      "predicted_need": true,
+      "need_probability": 1.0,
+      "confidence": 1.0,
+      "correct_selection": true,
+      "candidates": [
+        {
+          "id": "ticket-lookup",
+          "score": 16.0
+        },
+        {
+          "id": "meeting-brief",
+          "score": 3.0
+        },
+        {
+          "id": "incident-playbook",
+          "score": 2.0
+        },
+        {
+          "id": "design-system",
+          "score": 1.0
+        }
+      ]
+    },
+    {
+      "id": "indirect-design",
+      "category": "indirect",
+      "expected": "design-system",
+      "recommendation": "design-system",
+      "predicted_need": true,
+      "need_probability": 1.0,
+      "confidence": 1.0,
+      "correct_selection": true,
+      "candidates": [
+        {
+          "id": "design-system",
+          "score": 12.0
+        },
+        {
+          "id": "ticket-lookup",
+          "score": 3.0
+        },
+        {
+          "id": "incident-playbook",
+          "score": 2.0
+        },
+        {
+          "id": "meeting-brief",
+          "score": 2.0
+        }
+      ]
+    },
+    {
+      "id": "negative-general",
+      "category": "negative",
+      "expected": "none",
+      "recommendation": null,
+      "predicted_need": false,
+      "need_probability": 0.0,
+      "confidence": 0.0,
+      "correct_selection": true,
+      "candidates": []
+    },
+    {
+      "id": "negative-summary",
+      "category": "negative",
+      "expected": "none",
+      "recommendation": null,
+      "predicted_need": false,
+      "need_probability": 0.0,
+      "confidence": 0.0,
+      "correct_selection": true,
+      "candidates": [
+        {
+          "id": "design-system",
+          "score": 1.0
+        },
+        {
+          "id": "meeting-brief",
+          "score": 1.0
+        }
+      ]
+    },
+    {
+      "id": "negative-mentioned-capability",
+      "category": "negative",
+      "expected": "none",
+      "recommendation": null,
+      "predicted_need": false,
+      "need_probability": 0.0,
+      "confidence": 0.0,
+      "correct_selection": true,
+      "candidates": [
+        {
+          "id": "incident-playbook",
+          "score": 1.0
+        },
+        {
+          "id": "meeting-brief",
+          "score": 1.0
+        }
+      ]
+    },
+    {
+      "id": "negative-rejection",
+      "category": "negative",
+      "expected": "none",
+      "recommendation": null,
+      "predicted_need": false,
+      "need_probability": 0.0,
+      "confidence": 1.0,
+      "correct_selection": true,
+      "candidates": [
+        {
+          "id": "incident-playbook",
+          "score": 7.0
+        },
+        {
+          "id": "meeting-brief",
+          "score": 1.0
+        }
+      ]
+    },
+    {
+      "id": "unknown-capability",
+      "category": "unknown",
+      "expected": "other",
+      "recommendation": null,
+      "predicted_need": true,
+      "need_probability": 1.0,
+      "confidence": 0.0,
+      "correct_selection": true,
+      "candidates": [
+        {
+          "id": "design-system",
+          "score": 1.0
+        },
+        {
+          "id": "incident-playbook",
+          "score": 1.0
+        },
+        {
+          "id": "meeting-brief",
+          "score": 1.0
+        },
+        {
+          "id": "ticket-lookup",
+          "score": 1.0
+        }
+      ]
+    },
+    {
+      "id": "unknown-unavailable",
+      "category": "unknown",
+      "expected": "other",
+      "recommendation": null,
+      "predicted_need": true,
+      "need_probability": 1.0,
+      "confidence": 0.0,
+      "correct_selection": true,
+      "candidates": [
+        {
+          "id": "incident-playbook",
+          "score": 3.0
+        },
+        {
+          "id": "meeting-brief",
+          "score": 3.0
+        },
+        {
+          "id": "design-system",
+          "score": 1.0
+        }
+      ]
+    }
+  ],
+  "dataset": "evals/cases.json",
+  "backend": "lexical",
+  "version": "0.1.3",
+  "decision_backends": [
+    "lexical"
+  ]
+}

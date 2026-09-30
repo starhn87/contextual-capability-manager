@@ -1,0 +1,20 @@
+{
+  "name": "contextual-capability-manager",
+  "version": "0.1.3",
+  "description": "Discover, install, and use approved agent skills and MCP tools during an active task.",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Contextual Capability Manager",
+    "shortDescription": "Add approved capabilities while an agent works.",
+    "longDescription": "Finds uninstalled skills, plugins, and connectors and applies approved capabilities through a session-scoped MCP gateway.",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Use the capability manager if this task needs a skill or connector that is not available yet."
+  },
+  "mcpServers": "./.mcp.json",
+  "hooks": "./hooks/hooks.json"
+}

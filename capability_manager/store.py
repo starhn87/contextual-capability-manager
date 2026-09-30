@@ -1,0 +1,279 @@
+import json
+import sqlite3
+import time
+import uuid
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+
+class Store:
+    def __init__(self, path: Path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.path = path
+        with self._connect() as db:
+            db.executescript("""
+                CREATE TABLE IF NOT EXISTS active (
+                    session_id TEXT NOT NULL,
+                    capability_id TEXT NOT NULL,
+                    lease_until INTEGER NOT NULL,
+                    PRIMARY KEY(session_id, capability_id)
+                );
+                CREATE TABLE IF NOT EXISTS session_contexts (
+                    session_id TEXT PRIMARY KEY,
+                    context_key TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS outcomes (
+                    context_key TEXT NOT NULL,
+                    capability_id TEXT NOT NULL,
+                    session_id TEXT,
+                    success INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS decisions (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    context_key TEXT NOT NULL,
+                    task_hash TEXT NOT NULL,
+                    task_text TEXT,
+                    backend TEXT NOT NULL,
+                    model TEXT,
+                    recommendation TEXT,
+                    candidates_json TEXT NOT NULL,
+                    need_probability REAL,
+                    confidence REAL,
+                    activation_status TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS decision_feedback (
+                    decision_id TEXT PRIMARY KEY REFERENCES decisions(id),
+                    correct_capability_id TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS prompt_observations (
+                    turn_id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    decision_id TEXT NOT NULL REFERENCES decisions(id),
+                    created_at INTEGER NOT NULL
+                );
+            """)
+            columns = {row[1] for row in db.execute("PRAGMA table_info(outcomes)")}
+            if "session_id" not in columns:
+                db.execute("ALTER TABLE outcomes ADD COLUMN session_id TEXT")
+                db.execute("UPDATE outcomes SET session_id='legacy-' || rowid, success=0")
+            db.execute("CREATE UNIQUE INDEX IF NOT EXISTS outcome_session ON outcomes"
+                       "(context_key, capability_id, session_id)")
+
+    def _connect(self):
+        db = sqlite3.connect(str(self.path), timeout=10)
+        db.execute("PRAGMA journal_mode=WAL")
+        return db
+
+    def activate(self, session_id: str, capability_id: str) -> None:
+        with self._connect() as db:
+            db.execute("DELETE FROM active WHERE lease_until < ?", (int(time.time()),))
+            db.execute(
+                "INSERT OR REPLACE INTO active VALUES(?, ?, ?)",
+                (session_id, capability_id, int(time.time()) + 86400),
+            )
+
+    def is_active(self, session_id: str, capability_id: str) -> bool:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT 1 FROM active WHERE session_id=? AND capability_id=? AND lease_until>=?",
+                (session_id, capability_id, int(time.time())),
+            ).fetchone()
+        return row is not None
+
+    def release(self, session_id: str) -> List[str]:
+        with self._connect() as db:
+            rows = db.execute("SELECT capability_id FROM active WHERE session_id=?", (session_id,)).fetchall()
+            db.execute("DELETE FROM active WHERE session_id=?", (session_id,))
+            db.execute("DELETE FROM session_contexts WHERE session_id=?", (session_id,))
+        return [row[0] for row in rows]
+
+    def set_session_context(self, session_id: str, context_key: str) -> None:
+        with self._connect() as db:
+            db.execute("INSERT OR REPLACE INTO session_contexts VALUES(?, ?)",
+                       (session_id, context_key))
+
+    def session_context(self, session_id: str) -> Optional[str]:
+        with self._connect() as db:
+            row = db.execute("SELECT context_key FROM session_contexts WHERE session_id=?",
+                             (session_id,)).fetchone()
+        return row[0] if row else None
+
+    def record(self, context_key: str, capability_id: str, session_id: str, success: bool) -> None:
+        with self._connect() as db:
+            db.execute(
+                """INSERT INTO outcomes(context_key, capability_id, session_id, success, created_at)
+                   VALUES(?, ?, ?, ?, ?)
+                   ON CONFLICT(context_key, capability_id, session_id) DO UPDATE SET
+                   success=excluded.success, created_at=excluded.created_at""",
+                (context_key, capability_id, session_id, int(success), int(time.time())),
+            )
+
+    def warm_ids(self, context_key: str, minimum: int = 3) -> List[str]:
+        since = int(time.time()) - 30 * 86400
+        with self._connect() as db:
+            rows = db.execute(
+                """SELECT capability_id FROM outcomes
+                   WHERE context_key=? AND success=1 AND created_at>=?
+                   GROUP BY capability_id HAVING COUNT(*)>=?""",
+                (context_key, since, minimum),
+            ).fetchall()
+        return [row[0] for row in rows]
+
+    def add_decision(self, session_id: str, context_key: str, task_hash: str,
+                     task_text: Optional[str], decision: Dict[str, Any],
+                     candidates: List[Dict[str, Any]], status: str) -> str:
+        decision_id = uuid.uuid4().hex
+        with self._connect() as db:
+            db.execute(
+                """INSERT INTO decisions VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (decision_id, session_id, context_key, task_hash, task_text,
+                 decision["backend"], decision.get("model"), decision.get("recommendation"),
+                 json.dumps(candidates, ensure_ascii=False), decision.get("need_probability"),
+                 decision.get("confidence"), status, int(time.time())),
+            )
+        return decision_id
+
+    def latest_decision_context(self, session_id: str, capability_id: str) -> Optional[str]:
+        with self._connect() as db:
+            row = db.execute(
+                """SELECT context_key FROM decisions
+                   WHERE session_id=? AND recommendation=?
+                   ORDER BY created_at DESC, rowid DESC LIMIT 1""",
+                (session_id, capability_id),
+            ).fetchone()
+        return row[0] if row else None
+
+    def mark_decision(self, decision_id: str, status: str) -> None:
+        with self._connect() as db:
+            db.execute("UPDATE decisions SET activation_status=? WHERE id=?", (status, decision_id))
+
+    def add_prompt_observation(self, turn_id: str, session_id: str,
+                               decision_id: str) -> None:
+        with self._connect() as db:
+            db.execute("INSERT OR IGNORE INTO prompt_observations VALUES(?, ?, ?, ?)",
+                       (turn_id, session_id, decision_id, int(time.time())))
+
+    def prompt_observation(self, turn_id: str) -> Optional[str]:
+        with self._connect() as db:
+            row = db.execute("SELECT decision_id FROM prompt_observations WHERE turn_id=?",
+                             (turn_id,)).fetchone()
+        return row[0] if row else None
+
+    def mark_prompt_searched(self, session_id: str, turn_id: Optional[str] = None) -> None:
+        with self._connect() as db:
+            if turn_id:
+                row = db.execute(
+                    "SELECT decision_id FROM prompt_observations WHERE session_id=? AND turn_id=?",
+                    (session_id, turn_id),
+                ).fetchone()
+            else:
+                row = db.execute(
+                    """SELECT p.decision_id FROM prompt_observations p
+                       JOIN decisions d ON d.id=p.decision_id
+                       WHERE p.session_id=? AND p.created_at>=? AND d.activation_status='not_searched'
+                       ORDER BY p.created_at DESC, p.rowid DESC LIMIT 1""",
+                    (session_id, int(time.time()) - 600),
+                ).fetchone()
+            if row:
+                db.execute("UPDATE decisions SET activation_status='searched' WHERE id=?",
+                           (row[0],))
+
+    def get_decision(self, decision_id: str) -> Optional[Dict[str, Any]]:
+        with self._connect() as db:
+            db.row_factory = sqlite3.Row
+            row = db.execute(
+                """SELECT d.*, f.correct_capability_id, f.source AS feedback_source
+                   FROM decisions d LEFT JOIN decision_feedback f ON f.decision_id=d.id
+                   WHERE d.id=?""", (decision_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        item = dict(row)
+        item["candidates"] = json.loads(item.pop("candidates_json"))
+        return item
+
+    def add_feedback(self, decision_id: str, correct_capability_id: str,
+                     source: str = "user") -> None:
+        with self._connect() as db:
+            db.execute(
+                """INSERT INTO decision_feedback VALUES(?, ?, ?, ?)
+                   ON CONFLICT(decision_id) DO UPDATE SET
+                   correct_capability_id=excluded.correct_capability_id,
+                   source=excluded.source, created_at=excluded.created_at""",
+                (decision_id, correct_capability_id, source, int(time.time())),
+            )
+
+    def decisions(self, days: int = 30, limit: int = 50,
+                  pending_only: bool = False) -> List[Dict[str, Any]]:
+        since = int(time.time()) - days * 86400
+        with self._connect() as db:
+            db.row_factory = sqlite3.Row
+            rows = db.execute(
+                """SELECT d.id, d.session_id, d.context_key, d.task_hash, d.task_text, d.backend,
+                          d.model, d.recommendation, d.candidates_json, d.need_probability,
+                          d.confidence, d.activation_status, d.created_at,
+                          f.correct_capability_id
+                   FROM decisions d LEFT JOIN decision_feedback f ON f.decision_id=d.id
+                   WHERE d.created_at>=? AND (?=0 OR f.decision_id IS NULL)
+                   ORDER BY d.created_at DESC, d.rowid DESC LIMIT ?""",
+                (since, int(pending_only), limit),
+            ).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["candidates"] = json.loads(item.pop("candidates_json"))
+            result.append(item)
+        return result
+
+    def decision_report(self, days: int = 30) -> Dict[str, Any]:
+        since = int(time.time()) - days * 86400
+        with self._connect() as db:
+            rows = db.execute(
+                """SELECT d.backend, d.model, d.recommendation, f.correct_capability_id
+                   FROM decisions d LEFT JOIN decision_feedback f ON f.decision_id=d.id
+                   WHERE d.created_at>=?""", (since,)
+            ).fetchall()
+        groups: Dict[str, Dict[str, Any]] = {}
+        for backend, model, recommendation, label in rows:
+            key = backend + (":" + model if model else "")
+            group = groups.setdefault(key, {
+                "decisions": 0, "selected": 0, "labeled": 0, "correct": 0,
+                "false_positives": 0, "false_negatives": 0, "wrong_capability": 0,
+            })
+            group["decisions"] += 1
+            group["selected"] += recommendation is not None
+            if label is None:
+                continue
+            group["labeled"] += 1
+            if recommendation == (None if label == "none" else label):
+                group["correct"] += 1
+            elif recommendation is None:
+                group["false_negatives"] += 1
+            elif label == "none":
+                group["false_positives"] += 1
+            else:
+                group["wrong_capability"] += 1
+        for group in groups.values():
+            count = group["labeled"]
+            group["accuracy"] = group["correct"] / count if count else None
+            group["coverage"] = group["selected"] / group["decisions"]
+        with self._connect() as db:
+            observations = db.execute(
+                """SELECT d.activation_status, f.correct_capability_id
+                   FROM prompt_observations p JOIN decisions d ON d.id=p.decision_id
+                   LEFT JOIN decision_feedback f ON f.decision_id=d.id
+                   WHERE p.created_at>=?""", (since,)
+            ).fetchall()
+        skipped = [label for status, label in observations if status == "not_searched"]
+        return {"days": days, "groups": groups, "prompt_observations": {
+            "total": len(observations),
+            "searched": sum(status == "searched" for status, _ in observations),
+            "not_searched": len(skipped),
+            "labeled_not_searched": sum(label is not None for label in skipped),
+            "missed_capability": sum(label not in (None, "none") for label in skipped),
+        }}

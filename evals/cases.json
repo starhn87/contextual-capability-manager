@@ -1,0 +1,133 @@
+{
+  "version": 1,
+  "description": "Synthetic, manually labeled capability routing cases. These do not contain user data.",
+  "capabilities": [
+    {
+      "id": "meeting-brief",
+      "kind": "skill",
+      "name": "Meeting brief",
+      "description": "Create a meeting brief in the team's required format with decisions, owners, and action items.",
+      "tags": ["meeting notes", "meeting brief", "action items", "회의록", "결정사항", "담당자"]
+    },
+    {
+      "id": "incident-playbook",
+      "kind": "skill",
+      "name": "Incident playbook",
+      "description": "Apply the team's incident response checklist and produce a severity and handoff summary.",
+      "tags": ["incident", "severity", "handoff", "장애", "사고 대응", "인계"]
+    },
+    {
+      "id": "ticket-lookup",
+      "kind": "connector",
+      "name": "Ticket lookup",
+      "description": "Read current issue tracker tickets, assignees, and statuses from the connected workspace.",
+      "tags": ["ticket", "issue tracker", "assignee", "status", "이슈", "티켓", "담당자", "상태"]
+    },
+    {
+      "id": "design-system",
+      "kind": "plugin",
+      "name": "Design system",
+      "description": "Read approved UI components, tokens, and accessibility patterns for this project's design system.",
+      "tags": ["design system", "UI components", "tokens", "디자인 시스템", "컴포넌트", "토큰"]
+    }
+  ],
+  "cases": [
+    {
+      "id": "direct-meeting-en",
+      "category": "direct",
+      "prompt": "Use a skill to turn these meeting notes into a meeting brief with decisions and action items.",
+      "expected": "meeting-brief"
+    },
+    {
+      "id": "direct-meeting-ko",
+      "category": "direct",
+      "prompt": "회의록에서 결정사항과 담당자를 정리하는 스킬을 적용해줘.",
+      "expected": "meeting-brief"
+    },
+    {
+      "id": "direct-incident",
+      "category": "direct",
+      "prompt": "Find a skill for the incident severity and handoff checklist.",
+      "expected": "incident-playbook"
+    },
+    {
+      "id": "direct-ticket",
+      "category": "direct",
+      "prompt": "Connect a connector to look up the current status and assignee of ticket ABC-12.",
+      "expected": "ticket-lookup"
+    },
+    {
+      "id": "direct-design",
+      "category": "direct",
+      "prompt": "Apply the design system plugin to check UI components and tokens.",
+      "expected": "design-system"
+    },
+    {
+      "id": "indirect-meeting-en",
+      "category": "indirect",
+      "prompt": "Put these notes into our required meeting brief format, including decisions, owners, and action items.",
+      "expected": "meeting-brief"
+    },
+    {
+      "id": "indirect-meeting-ko",
+      "category": "indirect",
+      "prompt": "이 회의 메모를 팀 회의록 양식에 맞춰 결정사항과 담당자까지 정리해줘.",
+      "expected": "meeting-brief"
+    },
+    {
+      "id": "indirect-incident",
+      "category": "indirect",
+      "prompt": "An incident is underway. Follow our severity and handoff checklist for the response summary.",
+      "expected": "incident-playbook"
+    },
+    {
+      "id": "indirect-ticket",
+      "category": "indirect",
+      "prompt": "What is the current status and assignee of ticket ABC-12 in our issue tracker?",
+      "expected": "ticket-lookup"
+    },
+    {
+      "id": "indirect-design",
+      "category": "indirect",
+      "prompt": "Use the approved components and tokens from our design system for this screen.",
+      "expected": "design-system"
+    },
+    {
+      "id": "negative-general",
+      "category": "negative",
+      "prompt": "What is 17 plus 25?",
+      "expected": "none"
+    },
+    {
+      "id": "negative-summary",
+      "category": "negative",
+      "prompt": "Summarize this two-sentence public note in one sentence.",
+      "expected": "none"
+    },
+    {
+      "id": "negative-mentioned-capability",
+      "category": "negative",
+      "prompt": "Explain what a connector is. Do not install or use one.",
+      "expected": "none"
+    },
+    {
+      "id": "negative-rejection",
+      "category": "negative",
+      "prompt": "Do not use a skill. Just explain what an incident severity level means.",
+      "expected": "none"
+    },
+    {
+      "id": "unknown-capability",
+      "category": "unknown",
+      "prompt": "Install a connector to read live warehouse inventory counts.",
+      "expected": "other"
+    },
+    {
+      "id": "unknown-unavailable",
+      "category": "unknown",
+      "prompt": "Use a connector to look up the current status and assignee of ticket ABC-12.",
+      "available_ids": ["meeting-brief", "incident-playbook", "design-system"],
+      "expected": "other"
+    }
+  ]
+}

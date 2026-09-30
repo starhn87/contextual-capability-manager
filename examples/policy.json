@@ -1,0 +1,13 @@
+{
+  "publishers": ["local-demo"],
+  "kinds": ["skill", "plugin", "connector"],
+  "local_roots": ["packages"],
+  "download_hosts": [],
+  "connector_hosts": ["127.0.0.1", "localhost"],
+  "decision_hosts": ["127.0.0.1", "localhost"],
+  "allowed_secret_env": [],
+  "allowed_read_tools": [],
+  "allow_executable": false,
+  "allow_external_write": false,
+  "allowed_write_tools": []
+}
