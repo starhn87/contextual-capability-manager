@@ -31,7 +31,7 @@ class Entry:
         if kind not in ("skill", "plugin", "connector"):
             raise ValueError("invalid capability kind for " + identifier)
         source = raw.get("source")
-        if not isinstance(source, dict) or source.get("type") not in ("directory", "https_zip"):
+        if not isinstance(source, dict) or source.get("type") not in ("directory", "https_zip", "git"):
             raise ValueError("invalid source for " + identifier)
         version = str(raw.get("version") or "0")
         if not VERSION.fullmatch(version) or version in (".", ".."):

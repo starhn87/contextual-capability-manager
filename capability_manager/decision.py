@@ -11,17 +11,30 @@ from .policy import Policy
 
 
 def _terms(value: str):
-    return set(re.findall(r"[\w가-힣]+", value.casefold()))
+    return set(re.findall(r"[\w가-힣]+", value.casefold().replace("-", " ")))
+
+
+SEARCH_STOPWORDS = {
+    "a", "an", "and", "for", "in", "of", "on", "our", "the", "to", "with",
+    "add", "apply", "find", "install", "need", "use", "using", "want",
+    "capability", "connector", "mcp", "plugin", "skill",
+    "사용", "필요", "적용", "설치", "찾아", "스킬", "플러그인", "커넥터",
+}
 
 
 def lexical_rank(task: str, entries: List[Entry]) -> List[Tuple[Entry, float]]:
-    query = _terms(task)
+    query = _terms(task) - SEARCH_STOPWORDS
     results = []
     for entry in entries:
-        target = " ".join([entry.name, entry.description] + entry.tags).casefold()
-        match = len(query & _terms(target))
-        substring = sum(1 for tag in entry.tags if len(tag) >= 3 and tag.casefold() in task.casefold())
-        score = match + 2 * substring
+        name = _terms(entry.name) - SEARCH_STOPWORDS
+        tags = _terms(" ".join(entry.tags)) - SEARCH_STOPWORDS
+        description = _terms(entry.description) - SEARCH_STOPWORDS
+        score = (6 * len(query & name) + 3 * len(query & tags) +
+                 len(query & description))
+        score += 2 * sum(1 for tag in entry.tags if re.search(r"[가-힣]", tag)
+                         and len(tag) >= 3 and tag.casefold() in task.casefold())
+        if entry.name.casefold().replace("-", " ") in task.casefold().replace("-", " "):
+            score += 3
         if score:
             results.append((entry, float(score)))
     return sorted(results, key=lambda item: (-item[1], item[0].id))
@@ -71,7 +84,11 @@ def lexical_decision(task: str, entries: List[Entry], context: str = "") -> Dict
                  and bool(CAPABILITY_ACTION.search(task)) and not rejected)
     top_score = ranked[0][1] if ranked else 0.0
     runner_score = ranked[1][1] if len(ranked) > 1 else 0.0
-    confidence = 1.0 if top_score >= 2 and top_score - runner_score >= 2 else 0.0
+    duplicate_purpose = (len(ranked) > 1 and
+                         ranked[0][0].description == ranked[1][0].description and
+                         set(ranked[0][0].tags) == set(ranked[1][0].tags))
+    confidence = (1.0 if top_score >= 2 and top_score - runner_score >= 2
+                  and not duplicate_purpose else 0.0)
     inferred = (not rejected and not SUPPLIED_MATERIAL.search(task)
                 and bool(PROJECT_REFERENCE.search(task))
                 and bool(WORK_ACTION.search(task)) and confidence >= 0.85)

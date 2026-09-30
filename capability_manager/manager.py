@@ -1,7 +1,9 @@
 import hashlib
 import os
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 from .catalog import Entry, load_catalog
 from .decision import CAPABILITY_REJECTION, SUPPLIED_MATERIAL, DecisionRouter, lexical_decision
@@ -32,7 +34,8 @@ def default_config_dir() -> Path:
 class CapabilityManager:
     def __init__(self, catalog_paths: Optional[List[Path]] = None,
                  policy_path: Optional[Path] = None, data_dir: Optional[Path] = None,
-                 include_codex_catalog: Optional[bool] = None):
+                 include_codex_catalog: Optional[bool] = None,
+                 include_claude_catalog: Optional[bool] = None):
         self.data_dir = data_dir or default_data_dir()
         self.data_dir.mkdir(parents=True, exist_ok=True)
         configured = os.environ.get("CAPMGR_CATALOGS", "")
@@ -47,16 +50,44 @@ class CapabilityManager:
             local_catalog, local_policy = config_catalog, config_policy
         else:
             local_catalog, local_policy = data_catalog, data_policy
-        self.catalog_paths = catalog_paths or (
+        include_claude_catalog = (
+            (os.environ.get("CAPMGR_INCLUDE_CLAUDE_CATALOG") == "1" or
+             (os.environ.get("CAPMGR_INCLUDE_CLAUDE_CATALOG") != "0" and
+              bool(os.environ.get("CLAUDE_PLUGIN_DATA")))) and
+            catalog_paths is None and not configured
+            if include_claude_catalog is None else include_claude_catalog
+        )
+        self.catalog_paths = catalog_paths if catalog_paths is not None else (
             [Path(item) for item in configured.split(os.pathsep) if item]
             if configured else [local_catalog if local_catalog.exists()
                              else ROOT / "examples/catalog.json"]
         )
+        if include_claude_catalog and not configured and not local_catalog.exists() and catalog_paths is None:
+            self.catalog_paths = []
         self.policy_path = policy_path or Path(os.environ.get(
             "CAPMGR_POLICY", str(local_policy if local_policy.exists()
                                  else ROOT / "examples/policy.json")))
         self.policy = Policy.load(self.policy_path)
         self.catalog = load_catalog(self.catalog_paths)
+        if include_claude_catalog:
+            from .claude_catalog import discover
+            discovered = discover()
+            for identifier, entry in discovered.items():
+                self.catalog.setdefault(identifier, entry)
+            default_policy = (policy_path is None and not os.environ.get("CAPMGR_POLICY")
+                              and not local_policy.exists())
+            if default_policy:
+                publishers = set(self.policy.publishers)
+                roots = set(self.policy.local_roots)
+                hosts = set(self.policy.download_hosts)
+                for entry in discovered.values():
+                    publishers.add(entry.publisher)
+                    if entry.source["type"] == "directory":
+                        roots.add(Path(entry.source["path"]).resolve())
+                    elif entry.source["type"] == "git":
+                        hosts.add(urlparse(entry.source["url"]).hostname)
+                self.policy = replace(self.policy, publishers=sorted(publishers),
+                                      local_roots=sorted(roots), download_hosts=sorted(hosts))
         include_codex_catalog = (os.environ.get("CAPMGR_INCLUDE_CODEX_CATALOG") == "1"
                                  if include_codex_catalog is None else include_codex_catalog)
         if include_codex_catalog:
@@ -177,6 +208,10 @@ class CapabilityManager:
             return {"status": "no_confident_match", "search": search}
         try:
             capability = self.activate(chosen, session_id)
+        except PermissionError as exc:
+            self.store.mark_decision(search["decision_id"], "requires_review")
+            return {"status": "requires_review", "search": search,
+                    "capability_id": chosen, "reason": str(exc)}
         except Exception:
             self.store.mark_decision(search["decision_id"], "activation_failed")
             raise

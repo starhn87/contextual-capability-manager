@@ -1,4 +1,5 @@
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List
@@ -65,13 +66,25 @@ class Policy:
             candidate = (entry.catalog_path.parent / value).resolve()
             if not any(within(candidate, root) for root in self.local_roots):
                 raise PermissionError("local source is outside approved roots")
-        else:
+        elif source["type"] == "https_zip":
             url = urlparse(str(source.get("url", "")))
             if url.scheme != "https" or url.hostname not in self.download_hosts:
                 raise PermissionError("download host is outside approved policy")
             digest = source.get("sha256", "")
             if not isinstance(digest, str) or len(digest) != 64:
                 raise PermissionError("HTTPS packages require a pinned SHA-256 digest")
+        elif source["type"] == "git":
+            url = urlparse(str(source.get("url", "")))
+            if (url.scheme != "https" or url.hostname not in self.download_hosts or
+                    url.username or url.password or url.query or url.fragment):
+                raise PermissionError("git source host is outside approved policy")
+            sha = source.get("sha", "")
+            if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-fA-F]{40,64}", sha):
+                raise PermissionError("git source requires a pinned commit SHA")
+            subdir = source.get("subdir", "")
+            if (not isinstance(subdir, str) or Path(subdir).is_absolute() or
+                    ".." in Path(subdir).parts or "\\" in subdir):
+                raise PermissionError("git source contains an unsafe subdirectory")
 
     def check_connector_url(self, url: str) -> None:
         parsed = urlparse(url)

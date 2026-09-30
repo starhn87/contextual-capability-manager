@@ -1,6 +1,8 @@
 import hashlib
+import json
 import os
 import shutil
+import subprocess
 import tempfile
 import zipfile
 from pathlib import Path
@@ -22,6 +24,62 @@ def _check_directory(source: Path) -> None:
     for path in source.rglob("*"):
         if path.is_symlink():
             raise ValueError("capability package contains a symlink")
+
+
+def _check_remote_skill(source: Path) -> None:
+    """Remote marketplace content is usable only as bounded, static skill text."""
+    if not source.is_dir():
+        raise ValueError("git source subdirectory does not exist")
+    if any((source / marker).exists() for marker in ("hooks", ".mcp.json", "mcp.json")):
+        raise PermissionError("remote plugin has executable components; review it before enabling")
+    for manifest in (source / "plugin.json", source / ".claude-plugin/plugin.json"):
+        if manifest.is_file():
+            document = json.loads(manifest.read_text(encoding="utf-8"))
+            if any(document.get(key) for key in ("hooks", "mcpServers", "lspServers")):
+                raise PermissionError("remote plugin declares executable components")
+    if not (source / "SKILL.md").is_file() and not any(
+            (source / "skills").glob("*/SKILL.md")):
+        raise ValueError("remote plugin has no skill instructions")
+    count = total = 0
+    for current, directories, files in os.walk(source):
+        directories[:] = [name for name in directories if name != ".git"]
+        for name in directories + files:
+            path = Path(current) / name
+            if path.is_symlink():
+                raise ValueError("remote plugin contains a symlink")
+            if path.is_file():
+                count += 1
+                total += path.stat().st_size
+                if count > MAX_FILES or total > MAX_EXTRACTED_BYTES:
+                    raise ValueError("remote plugin exceeds size limits")
+
+
+def _fetch_git(source: dict, staging: Path) -> Path:
+    repository = staging / "repository"
+    repository.mkdir()
+    environment = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_LFS_SKIP_SMUDGE="1",
+                       GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+    def run(*arguments: str) -> str:
+        process = subprocess.run(
+            ["git", "-C", str(repository), "-c", "core.hooksPath=" + os.devnull,
+             "-c", "submodule.recurse=false", *arguments],
+            capture_output=True, text=True, timeout=60, env=environment,
+        )
+        if process.returncode:
+            raise RuntimeError("git source could not be fetched or verified: " +
+                               process.stderr.strip()[:300])
+        return process.stdout.strip()
+    run("init", "--quiet")
+    run("fetch", "--depth", "1", "--no-tags", source["url"], source["sha"])
+    actual = run("rev-parse", "FETCH_HEAD").lower()
+    if actual != source["sha"].lower():
+        raise ValueError("git source commit does not match pinned SHA")
+    run("checkout", "--quiet", "--detach", actual)
+    package = (repository / source.get("subdir", "")).resolve()
+    if not within(package, repository.resolve()):
+        raise ValueError("git source subdirectory escapes checkout")
+    _check_remote_skill(package)
+    return package
 
 
 def _extract_zip(archive: Path, destination: Path) -> None:
@@ -62,6 +120,10 @@ class Installer:
                 source = (entry.catalog_path.parent / entry.source["path"]).resolve()
                 _check_directory(source)
                 shutil.copytree(str(source), str(staging / "package"))
+            elif entry.source["type"] == "git":
+                source = _fetch_git(entry.source, staging)
+                shutil.copytree(str(source), str(staging / "package"),
+                                ignore=shutil.ignore_patterns(".git"))
             else:
                 request = Request(entry.source["url"], headers={"User-Agent": "capability-manager/0.1"})
                 with open_no_redirect(request, timeout=15) as response:
@@ -79,7 +141,8 @@ class Installer:
             package = staging / "package"
             if not any((package / marker).is_file() for marker in
                        ("SKILL.md", "plugin.json", ".codex-plugin/plugin.json",
-                        ".claude-plugin/plugin.json")):
+                        ".claude-plugin/plugin.json")) and not any(
+                            (package / "skills").glob("*/SKILL.md")):
                 raise ValueError("package has no skill or plugin manifest")
             os.replace(str(package), str(final))
             return final
