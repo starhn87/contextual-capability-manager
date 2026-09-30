@@ -1,0 +1,24 @@
+{
+  "cases": [
+    {
+      "id": "explicit-skill",
+      "expected_activation": true,
+      "prompt": "회의록 요약 스킬을 사용해서 다음 가상 메모의 결정사항과 담당자를 정리해줘. 메모: 다음 주 시연을 진행한다. 민지는 발표 자료를 준비한다. 답변만 작성하고 파일은 수정하지 마."
+    },
+    {
+      "id": "implicit-team-format",
+      "expected_activation": true,
+      "prompt": "다음 가상 메모를 우리 팀 회의록 양식에 맞춰 결정사항과 담당자까지 정리해줘. 메모: 다음 주 시연을 진행한다. 민지는 발표 자료를 준비한다. 답변만 작성하고 파일은 수정하지 마."
+    },
+    {
+      "id": "routine-summary",
+      "expected_activation": false,
+      "prompt": "이 두 문장을 한 문장으로 요약해줘: 첫 문장은 시연이 다음 주라는 내용이다. 둘째 문장은 민지가 발표한다는 내용이다. 답변만 작성하고 파일은 수정하지 마."
+    },
+    {
+      "id": "provided-format",
+      "expected_activation": false,
+      "prompt": "아래에 제공한 양식대로 가상 메모를 정리해줘. 양식: 결정 / 담당자. 메모: 다음 주 시연을 진행한다. 민지가 발표 자료를 준비한다. 답변만 작성하고 파일은 수정하지 마."
+    }
+  ]
+}

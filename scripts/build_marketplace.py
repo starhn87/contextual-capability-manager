@@ -14,7 +14,8 @@ def main():
     if OUT.exists():
         shutil.rmtree(str(OUT))
     PLUGIN.mkdir(parents=True)
-    for folder in ("capability_manager", "skills", "examples", "hooks", ".codex-plugin"):
+    for folder in ("capability_manager", "skills", "examples", "hooks", "scripts",
+                   ".codex-plugin", ".claude-plugin"):
         shutil.copytree(str(ROOT / folder), str(PLUGIN / folder),
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     for filename in ("plugin.json", "mcp.json", ".mcp.json"):

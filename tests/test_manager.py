@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from capability_manager.manager import CapabilityManager, context_key
+from capability_manager.onboarding import register_source
 from capability_manager.store import Store
 
 
@@ -150,7 +151,9 @@ class ManagerTests(unittest.TestCase):
                 input=json.dumps(event), text=True, capture_output=True, env=env, check=True,
             ).stdout
 
-        self.assertEqual(submit("turn-1", "Summarize these private meeting notes."), "")
+        routine_output = submit("turn-1", "Summarize these private meeting notes.")
+        self.assertIn("turn_id: turn-1", routine_output)
+        self.assertNotIn("suggests notes-skill", routine_output)
         skipped_id = manager.store.prompt_observation("turn-1")
         skipped = manager.store.get_decision(skipped_id)
         self.assertEqual(skipped["activation_status"], "not_searched")
@@ -169,6 +172,113 @@ class ManagerTests(unittest.TestCase):
         observed = manager.decision_report()["prompt_observations"]
         self.assertEqual(observed, {"total": 3, "searched": 1, "not_searched": 2,
                                     "labeled_not_searched": 1, "missed_capability": 1})
+
+    def test_claude_prompt_without_turn_id_gets_observable_unique_turns(self):
+        fixture = Fixture(self.temp.name)
+        package = fixture.add("notes-skill")
+        (package / "SKILL.md").write_text("Summarize notes.")
+        env = dict(os.environ, CAPMGR_CATALOGS=str(fixture.catalog),
+                   CAPMGR_POLICY=str(fixture.policy), CLAUDE_PLUGIN_DATA=str(fixture.data))
+        env.pop("CAPMGR_DATA_DIR", None)
+        env.pop("PLUGIN_DATA", None)
+        event = {"session_id": "claude-session", "cwd": "/project/example",
+                 "prompt": "Use a skill to summarize meeting notes."}
+        ids = []
+        for _ in range(2):
+            process = subprocess.run(
+                [sys.executable, str(ROOT / "hooks/user_prompt_submit.py")],
+                input=json.dumps(event), text=True, capture_output=True, env=env, check=True,
+            )
+            guidance = json.loads(process.stdout)["hookSpecificOutput"]["additionalContext"]
+            self.assertIn("suggests notes-skill", guidance)
+            ids.append(guidance.split("turn_id: ", 1)[1].split(".", 1)[0])
+        self.assertNotEqual(ids[0], ids[1])
+        manager = CapabilityManager([fixture.catalog], fixture.policy, fixture.data)
+        self.assertTrue(all(manager.store.prompt_observation(turn) for turn in ids))
+        manager.search("need a skill to summarize meeting notes",
+                       session_id="claude-session", turn_id=ids[0])
+        self.assertEqual(manager.store.get_decision(manager.store.prompt_observation(ids[0]))
+                         ["activation_status"], "searched")
+
+    def test_registered_local_capability_loads_without_environment_configuration(self):
+        source = Path(self.temp.name) / "team-skill"
+        source.mkdir()
+        (source / "SKILL.md").write_text("---\nname: team-skill\n---\nUse the team format.")
+        data = Path(self.temp.name) / "configured"
+        result = register_source(
+            data, identifier="team-skill", name="Team meeting notes",
+            description="Prepare team meeting notes", kind="skill", publisher="team",
+            version="1.0.0", tags=["meeting", "notes"], source_dir=source,
+            dry_run=True,
+        )
+        self.assertTrue(result["dry_run"])
+        self.assertFalse((data / "catalog.json").exists())
+        register_source(
+            data, identifier="team-skill", name="Team meeting notes",
+            description="Prepare team meeting notes", kind="skill", publisher="team",
+            version="1.0.0", tags=["meeting", "notes"], source_dir=source,
+        )
+        with patch.dict(os.environ, {"CAPMGR_CONFIG_DIR": str(data)}):
+            manager = CapabilityManager(data_dir=Path(self.temp.name) / "runtime")
+        self.assertEqual(manager.resolve("Use a skill for team meeting notes", "session-a")
+                         ["status"], "activated")
+        self.assertEqual(manager.release("session-a")["released"], ["team-skill"])
+
+    def test_registered_executable_is_scoped_to_one_capability(self):
+        source = Path(self.temp.name) / "server-plugin"
+        source.mkdir()
+        write_json(source / "plugin.json", {"name": "server-plugin", "version": "1.0.0"})
+        write_json(source / "mcp.json", {"mcpServers": {"mock": {
+            "type": "stdio", "command": "python3", "args": ["server.py"]}}})
+        (source / "server.py").write_text(MOCK_MCP)
+        data = Path(self.temp.name) / "configured"
+        params = dict(identifier="server-plugin", name="Server plugin",
+                      description="Look up local demo notes", kind="plugin", publisher="team",
+                      version="1.0.0", tags=["lookup", "notes"], source_dir=source)
+        with self.assertRaises(PermissionError):
+            register_source(data, **params)
+        register_source(data, **params, allow_executable=True,
+                        allowed_read_tools=["server-plugin:lookup"])
+        manager = CapabilityManager(data_dir=data)
+        self.assertTrue(manager.policy.can_execute("server-plugin"))
+        self.assertFalse(manager.policy.can_execute("another-plugin"))
+        result = manager.activate("server-plugin", "session-a")
+        self.assertEqual(result["mcp_servers"]["mock"][0]["name"], "lookup")
+        manager.release("session-a")
+
+    def test_pinned_remote_source_registration_does_not_download(self):
+        data = Path(self.temp.name) / "configured"
+        result = register_source(
+            data, identifier="remote-notes", name="Remote notes",
+            description="Prepare approved meeting notes", kind="skill",
+            publisher="team", version="1.0.0", tags=["meeting"],
+            source_url="https://packages.example.test/notes.zip", sha256="a" * 64,
+        )
+        self.assertEqual(result["entry"]["source"]["sha256"], "a" * 64)
+        self.assertEqual(CapabilityManager(data_dir=data).search(
+            "Use a skill for meeting notes")["recommendation"], "remote-notes")
+        self.assertFalse(any((data / "cache").glob("remote-notes/*")))
+
+    def test_claude_mcp_entrypoint_exposes_manager_tools(self):
+        data = Path(self.temp.name) / "claude-data"
+        env = dict(os.environ, CLAUDE_PLUGIN_DATA=str(data))
+        env.pop("PLUGIN_DATA", None)
+        env.pop("CAPMGR_DATA_DIR", None)
+        messages = [
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+             "params": {"protocolVersion": "2025-03-26"}},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+        ]
+        process = subprocess.run(
+            [sys.executable, str(ROOT / "scripts/serve.py")],
+            input="\n".join(json.dumps(item) for item in messages) + "\n",
+            text=True, capture_output=True, env=env, check=True,
+        )
+        replies = [json.loads(line) for line in process.stdout.splitlines()]
+        self.assertEqual(replies[0]["result"]["serverInfo"]["name"],
+                         "contextual-capability-manager")
+        self.assertIn("resolve_capability",
+                      {tool["name"] for tool in replies[1]["result"]["tools"]})
 
     def test_prompt_observer_can_avoid_dynamic_catalog_discovery(self):
         fixture = Fixture(self.temp.name)

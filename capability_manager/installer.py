@@ -77,7 +77,9 @@ class Installer:
                 (staging / "package").mkdir()
                 _extract_zip(archive, staging / "package")
             package = staging / "package"
-            if not any((package / marker).is_file() for marker in ("SKILL.md", "plugin.json", ".codex-plugin/plugin.json")):
+            if not any((package / marker).is_file() for marker in
+                       ("SKILL.md", "plugin.json", ".codex-plugin/plugin.json",
+                        ".claude-plugin/plugin.json")):
                 raise ValueError("package has no skill or plugin manifest")
             os.replace(str(package), str(final))
             return final

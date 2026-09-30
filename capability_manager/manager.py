@@ -18,21 +18,43 @@ def context_key(context: str) -> str:
     return hashlib.sha256(context.encode("utf-8")).hexdigest()[:24]
 
 
+def default_data_dir() -> Path:
+    return Path(os.environ.get("CAPMGR_DATA_DIR") or os.environ.get("PLUGIN_DATA")
+                or os.environ.get("CLAUDE_PLUGIN_DATA")
+                or str(Path.home() / ".local/share/contextual-capability-manager"))
+
+
+def default_config_dir() -> Path:
+    return Path(os.environ.get("CAPMGR_CONFIG_DIR")
+                or str(Path.home() / ".config/contextual-capability-manager"))
+
+
 class CapabilityManager:
     def __init__(self, catalog_paths: Optional[List[Path]] = None,
                  policy_path: Optional[Path] = None, data_dir: Optional[Path] = None,
                  include_codex_catalog: Optional[bool] = None):
+        self.data_dir = data_dir or default_data_dir()
+        self.data_dir.mkdir(parents=True, exist_ok=True)
         configured = os.environ.get("CAPMGR_CATALOGS", "")
+        configured_root = default_config_dir()
+        data_catalog = self.data_dir / "catalog.json"
+        data_policy = self.data_dir / "policy.json"
+        config_catalog = configured_root / "catalog.json"
+        config_policy = configured_root / "policy.json"
+        if data_catalog.exists() != data_policy.exists() or config_catalog.exists() != config_policy.exists():
+            raise ValueError("catalog.json and policy.json must be configured together")
+        if os.environ.get("CAPMGR_CONFIG_DIR") or config_catalog.exists():
+            local_catalog, local_policy = config_catalog, config_policy
+        else:
+            local_catalog, local_policy = data_catalog, data_policy
         self.catalog_paths = catalog_paths or (
             [Path(item) for item in configured.split(os.pathsep) if item]
-            if configured else [ROOT / "examples/catalog.json"]
+            if configured else [local_catalog if local_catalog.exists()
+                             else ROOT / "examples/catalog.json"]
         )
-        self.policy_path = policy_path or Path(os.environ.get("CAPMGR_POLICY", str(ROOT / "examples/policy.json")))
-        self.data_dir = data_dir or Path(
-            os.environ.get("CAPMGR_DATA_DIR") or os.environ.get("PLUGIN_DATA")
-            or str(Path.home() / ".local/share/contextual-capability-manager")
-        )
-        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.policy_path = policy_path or Path(os.environ.get(
+            "CAPMGR_POLICY", str(local_policy if local_policy.exists()
+                                 else ROOT / "examples/policy.json")))
         self.policy = Policy.load(self.policy_path)
         self.catalog = load_catalog(self.catalog_paths)
         include_codex_catalog = (os.environ.get("CAPMGR_INCLUDE_CODEX_CATALOG") == "1"
@@ -197,7 +219,8 @@ class CapabilityManager:
             raise ValueError("unknown MCP server: " + server_name)
         key = (session_id, capability_id, server_name)
         if key not in self.connections:
-            self.connections[key] = connect(configs[server_name], package, self.data_dir, self.policy)
+            self.connections[key] = connect(configs[server_name], package, self.data_dir,
+                                            self.policy, capability_id)
         return self.connections[key]
 
     def list_tools(self, session_id: str, capability_id: str, server_name: str) -> List[Dict[str, Any]]:

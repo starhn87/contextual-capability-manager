@@ -105,8 +105,9 @@ class HttpConnection:
 
 
 class StdioConnection:
-    def __init__(self, config: Dict[str, Any], package: Path, data_dir: Path, policy: Policy):
-        if not policy.allow_executable:
+    def __init__(self, config: Dict[str, Any], package: Path, data_dir: Path,
+                 policy: Policy, capability_id: str):
+        if not policy.can_execute(capability_id):
             raise PermissionError("local executable servers need separate approval")
         command = config.get("command")
         args = config.get("args", [])
@@ -193,12 +194,13 @@ class StdioConnection:
                 stream.close()
 
 
-def connect(config: Dict[str, Any], package: Path, data_dir: Path, policy: Policy):
+def connect(config: Dict[str, Any], package: Path, data_dir: Path,
+            policy: Policy, capability_id: str):
     kind = config.get("type")
     if kind in ("streamable-http", "http"):
         result = HttpConnection(config["url"], config.get("bearer_token_env_var"), policy)
     elif kind == "stdio" or (kind is None and "command" in config):
-        result = StdioConnection(config, package, data_dir, policy)
+        result = StdioConnection(config, package, data_dir, policy, capability_id)
     else:
         raise ValueError("unsupported MCP transport")
     result.initialize()

@@ -8,3 +8,4 @@ dist/
 *.jsonl
 *.log
 .DS_Store
+evals/runs/

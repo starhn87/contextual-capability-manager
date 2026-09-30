@@ -2,7 +2,8 @@ import argparse
 import json
 from pathlib import Path
 
-from .manager import CapabilityManager
+from .manager import CapabilityManager, default_config_dir
+from .onboarding import register_source
 
 
 def main() -> None:
@@ -10,7 +11,24 @@ def main() -> None:
     parser.add_argument("--catalog", action="append", type=Path)
     parser.add_argument("--policy", type=Path)
     parser.add_argument("--data-dir", type=Path)
+    parser.add_argument("--config-dir", type=Path)
     sub = parser.add_subparsers(dest="command", required=True)
+    register = sub.add_parser("catalog-add", help="Register one reviewed source for future sessions")
+    register.add_argument("--id", required=True)
+    register.add_argument("--name", required=True)
+    register.add_argument("--description", required=True)
+    register.add_argument("--kind", choices=("skill", "plugin", "connector"), required=True)
+    register.add_argument("--publisher", required=True)
+    register.add_argument("--version", default="1.0.0")
+    register.add_argument("--tag", action="append", default=[])
+    source = register.add_mutually_exclusive_group(required=True)
+    source.add_argument("--source-dir", type=Path)
+    source.add_argument("--source-url")
+    register.add_argument("--sha256")
+    register.add_argument("--allow-executable", action="store_true")
+    register.add_argument("--connector-host", action="append", default=[])
+    register.add_argument("--allow-read-tool", action="append", default=[])
+    register.add_argument("--dry-run", action="store_true")
     search = sub.add_parser("search")
     search.add_argument("task")
     search.add_argument("--context", default="")
@@ -50,6 +68,19 @@ def main() -> None:
     release = sub.add_parser("release")
     release.add_argument("--session", required=True)
     args = parser.parse_args()
+    if args.command == "catalog-add":
+        config_dir = args.config_dir or default_config_dir()
+        result = register_source(
+            config_dir, identifier=args.id, name=args.name,
+            description=args.description, kind=args.kind,
+            publisher=args.publisher, version=args.version, tags=args.tag,
+            source_dir=args.source_dir, source_url=args.source_url,
+            sha256=args.sha256, allow_executable=args.allow_executable,
+            connector_hosts=args.connector_host,
+            allowed_read_tools=args.allow_read_tool, dry_run=args.dry_run,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return
     manager = CapabilityManager(args.catalog, args.policy, args.data_dir)
     if args.command == "search":
         result = manager.search(args.task, args.context, args.session, args.turn)

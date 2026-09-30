@@ -1,0 +1,12 @@
+{
+  "name": "contextual-capabilities",
+  "description": "Private capability management plugins",
+  "owner": {"name": "starhn87"},
+  "plugins": [
+    {
+      "name": "contextual-capability-manager",
+      "source": {"source": "github", "repo": "starhn87/contextual-capability-manager"},
+      "description": "Find and apply approved skills and MCP tools during a task."
+    }
+  ]
+}

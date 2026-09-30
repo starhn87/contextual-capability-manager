@@ -18,12 +18,30 @@ python3 -m capability_manager.cli --data-dir /private/tmp/capability-manager-dem
 
 현재 시험 환경의 Codex CLI `0.158.0-alpha.2`에서는 패키지에 포함된 훅이 `/hooks`에 표시되지 않았습니다. 이 환경에서는 신뢰한 훅 명령을 `~/.codex/hooks.json`에 사용자 훅으로 등록하고, 플러그인의 `PLUGIN_DATA` 경로를 동일하게 지정해 사용합니다. 이 설정은 플러그인 설치만으로 자동 생성되지 않습니다. 훅의 모델용 안내에는 작업 경로와 사용자 요청 원문을 포함하지 않습니다.
 
+Claude Code용 `.claude-plugin/plugin.json`, `.mcp.json`, 세션 훅도 포함합니다. 로컬 검증은 `claude --plugin-dir <이 저장소의 절대 경로>`로 시작할 수 있습니다. 사용자 범위 설치는 비공개 저장소에 접근 가능한 계정에서 `claude plugin marketplace add starhn87/contextual-capability-manager`, `claude plugin install contextual-capability-manager@contextual-capabilities`를 사용합니다. 새 세션에서 `/mcp`와 `/plugin`으로 로딩 상태를 확인하세요. 현재 개발 환경에는 Claude Code CLI가 없어서 실제 Claude 세션 검증은 아직 수행하지 못했습니다. Claude 훅에는 Codex의 `turn_id`가 없으므로 제출 때마다 ID를 생성해 판단 기록과 도구 호출을 연결합니다.
+
+## 승인된 능력 등록
+
+기본 목록은 회의록 요약 예제 하나입니다. 다른 능력을 자동으로 찾으려면, 사용할 출처를 한 번 등록해야 합니다. 등록 정보는 기본적으로 `~/.config/contextual-capability-manager/catalog.json`과 `policy.json`에 저장되고 Codex·Claude Code의 새 세션이 함께 읽습니다. `--config-dir` 또는 `CAPMGR_CONFIG_DIR`로 위치를 바꿀 수 있습니다. 다음 명령의 `--dry-run`은 제안 내용만 출력합니다.
+
+```bash
+python3 -m capability_manager.cli catalog-add \
+  --id team-notes --name 'Team notes' \
+  --description 'Prepare our team meeting notes and action items' \
+  --kind skill --publisher my-team --version 1.0.0 \
+  --tag meeting --tag notes --source-dir /absolute/path/to/team-notes \
+  --dry-run
+```
+
+검토한 뒤 `--dry-run`을 빼고 다시 실행합니다. 승인된 원격 ZIP은 `--source-url https://.../package.zip --sha256 <64자리 해시>`로 등록할 수 있습니다. 등록 시 다운로드하지 않으며, 실제 선택된 세션에서 해시를 확인합니다. stdio MCP가 들어 있는 로컬 패키지는 해당 ID에 한해 `--allow-executable`을 명시해야 등록됩니다. 원격 패키지의 실행 필요 여부는 등록 전에 직접 확인하고 같은 옵션으로 선언해야 합니다. 읽기 도구는 `--allow-read-tool ID:도구명`, HTTP 커넥터 호스트는 `--connector-host 호스트명`으로 별도 허용합니다. 외부 쓰기와 새 OAuth 인증은 이 명령으로 허용되지 않습니다.
+
 ## 구성
 
 - `examples/catalog.json`: 아직 설치되지 않은 능력의 검색 목록입니다. 로컬 디렉터리 또는 SHA-256으로 고정한 HTTPS ZIP을 출처로 지정할 수 있습니다. `CAPMGR_CATALOGS`에 여러 목록 경로를 운영체제 경로 구분자로 연결할 수 있습니다.
 - `examples/policy.json`: 설치 시 미리 허용한 게시자, 종류, 로컬 경로, 다운로드·커넥터 호스트, 실행 여부, 읽기·쓰기 도구 목록입니다. 모델의 추천 결과와 무관하게 코드가 이 정책을 검사합니다. 다른 파일을 쓰려면 `CAPMGR_POLICY`를 지정합니다.
 - `CAPMGR_INCLUDE_CODEX_CATALOG=1`: Codex CLI의 사용 가능한 로컬 마켓플레이스 패키지를 검색 목록에 추가합니다. 해당 출처는 정책의 게시자·경로 조건을 만족해야 활성화할 수 있습니다.
-- `CAPMGR_DATA_DIR`: 패키지 캐시와 사용 기록을 저장할 폴더입니다. 플러그인에서는 `PLUGIN_DATA`가 기본값입니다. 판단 기록은 기본적으로 작업 원문 대신 해시, 후보 ID·점수, 선택, 판단기, 활성화 상태만 저장합니다.
+- `CAPMGR_DATA_DIR`: 패키지 캐시와 사용 기록을 저장할 폴더입니다. Codex에서는 `PLUGIN_DATA`, Claude Code에서는 `CLAUDE_PLUGIN_DATA`가 기본값입니다. 판단 기록은 기본적으로 작업 원문 대신 해시, 후보 ID·점수, 선택, 판단기, 활성화 상태만 저장합니다.
+- `CAPMGR_CONFIG_DIR`: 등록한 목록·정책의 공통 위치입니다. 기본값은 `~/.config/contextual-capability-manager`입니다. 기존 플러그인 데이터 폴더의 목록·정책도 공통 설정이 없으면 읽습니다.
 - `CAPMGR_STORE_DECISION_TEXT=1`: 오판 사례를 나중에 직접 검토하려고 판단에 전달한 작업 설명을 로컬 DB에 저장할 때만 켭니다. 기본값은 꺼짐이며, 켜면 최대 2,000자를 저장합니다.
 - `CAPMGR_DECIDER_URL`: 선택 사항인 Jev 방식 결정 API의 `/v1/systemone` URL입니다. `CAPMGR_DECIDER_MODEL`에는 Jev·Kev·Jeff 서버가 제공하는 모델명을, `CAPMGR_DECIDER_KEY_ENV`에는 인증 토큰을 담은 환경 변수명을 넣습니다. 해당 호스트를 정책의 `decision_hosts`에도 허용해야 합니다. 토큰을 쓰는 경우 변수명을 `allowed_secret_env`에 추가합니다. 설정하지 않으면 간단한 로컬 단어 매칭을 사용합니다.
 

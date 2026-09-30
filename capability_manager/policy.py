@@ -26,6 +26,7 @@ class Policy:
     allowed_secret_env: List[str]
     allowed_read_tools: List[str]
     allow_executable: bool
+    executable_ids: List[str]
     allow_external_write: bool
     allowed_write_tools: List[str]
 
@@ -44,6 +45,7 @@ class Policy:
             allowed_secret_env=raw.get("allowed_secret_env", []),
             allowed_read_tools=raw.get("allowed_read_tools", []),
             allow_executable=bool(raw.get("allow_executable", False)),
+            executable_ids=raw.get("executable_ids", []),
             allow_external_write=bool(raw.get("allow_external_write", False)),
             allowed_write_tools=raw.get("allowed_write_tools", []),
         )
@@ -51,7 +53,7 @@ class Policy:
     def check_entry(self, entry: Entry) -> None:
         if entry.publisher not in self.publishers or entry.kind not in self.kinds:
             raise PermissionError("publisher or capability kind is outside the approved policy")
-        if entry.permissions.get("execute") and not self.allow_executable:
+        if entry.permissions.get("execute") and not self.can_execute(entry.id):
             raise PermissionError("executable capability needs separate approval")
         if entry.permissions.get("external_write") and not self.allow_external_write:
             raise PermissionError("external write capability needs separate approval")
@@ -83,6 +85,9 @@ class Policy:
     def check_secret_env(self, name: str) -> None:
         if name not in self.allowed_secret_env:
             raise PermissionError("credential environment variable is outside approved policy")
+
+    def can_execute(self, capability_id: str) -> bool:
+        return self.allow_executable or capability_id in self.executable_ids
 
     def check_tool(self, capability_id: str, tool_name: str, read_only: bool) -> None:
         identity = capability_id + ":" + tool_name

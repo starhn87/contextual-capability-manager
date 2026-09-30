@@ -296,7 +296,7 @@
   ],
   "dataset": "evals/challenge.json",
   "backend": "lexical",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "decision_backends": [
     "lexical"
   ]
