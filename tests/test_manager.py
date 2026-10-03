@@ -443,6 +443,80 @@ class ManagerTests(unittest.TestCase):
             manager.activate("blocked-plugin", "session-c")
         self.assertFalse(manager.installer.package_path(manager.catalog["blocked-plugin"]).exists())
 
+    def test_failed_connector_is_unavailable_and_revokes_only_its_lease(self):
+        fixture = Fixture(self.temp.name)
+        package = fixture.add("broken-connector", kind="connector", tags=["ticket", "status"])
+        write_json(package / "plugin.json", {"name": "broken-connector"})
+        write_json(package / "mcp.json", {"mcpServers": {"broken": {"type": "http"}}})
+        manager = fixture.manager()
+        manager.store.activate("s", "another-capability")
+        with patch.object(manager, "list_tools", side_effect=ConnectionError("unavailable")):
+            result = manager.resolve("Use a connector to read ticket status", "s")
+        self.assertEqual(result["status"], "unavailable")
+        self.assertEqual(result["capability"]["skills"], [])
+        self.assertEqual(result["capability"]["mcp_servers"], {})
+        self.assertFalse(manager.store.is_active("s", "broken-connector"))
+        self.assertTrue(manager.store.is_active("s", "another-capability"))
+        self.assertEqual(manager.store.get_decision(result["search"]["decision_id"])
+                         ["activation_status"], "unavailable")
+        self.assertFalse(any(event["event_type"] == "capability_delivered"
+                             for event in manager.store.events(session_id="s")))
+
+    def test_skill_with_failed_server_is_partial_not_complete_delivery(self):
+        fixture = Fixture(self.temp.name)
+        package = fixture.add("notes-plugin", kind="plugin", tags=["notes"])
+        (package / "SKILL.md").write_text("Summarize notes.")
+        write_json(package / "mcp.json", {"mcpServers": {"broken": {"type": "http"}}})
+        manager = fixture.manager()
+        with patch.object(manager, "list_tools", side_effect=ConnectionError("unavailable")):
+            result = manager.resolve("Use a plugin for notes", "s")
+        self.assertEqual(result["status"], "partially_activated")
+        self.assertEqual(result["capability"]["availability"], "partial")
+        self.assertTrue(manager.store.is_active("s", "notes-plugin"))
+        self.assertEqual(result["capability"]["skills"][0]["instructions"], "Summarize notes.")
+
+    def test_static_resolution_selects_one_relevant_skill_from_a_package(self):
+        fixture = Fixture(self.temp.name)
+        package = fixture.add("team-notes")
+        for folder, text in [("meeting", "---\nname: meeting brief\ndescription: Meeting notes and decisions\n---\nUse exact owners."),
+                             ("incident", "---\nname: incident response\ndescription: Incident severity and handoff\n---\nUse severity levels.")]:
+            skill_dir = package / "skills" / folder
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text(text)
+        result = fixture.manager().resolve_static("Use a skill for meeting notes", "s")
+        self.assertEqual(result["status"], "activated")
+        self.assertEqual([skill["path"] for skill in result["capability"]["skills"]],
+                         ["skills/meeting/SKILL.md"])
+        self.assertEqual(result["capability"]["omitted_skill_count"], 1)
+
+    def test_combined_instruction_budget_prevents_activation(self):
+        fixture = Fixture(self.temp.name)
+        package = fixture.add("many-skills")
+        for index in range(3):
+            skill_dir = package / "skills" / str(index)
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text("x" * 25000)
+        manager = fixture.manager()
+        with self.assertRaisesRegex(ValueError, "combined context limit"):
+            manager.activate("many-skills", "s")
+        self.assertFalse(manager.store.is_active("s", "many-skills"))
+
+    def test_gateway_can_deliver_tools_without_unrelated_skill_instructions(self):
+        fixture = Fixture(self.temp.name)
+        package = fixture.add("mock-plugin", kind="plugin")
+        write_json(package / "mcp.json", {"mcpServers": {"mock": {"type": "http"}}})
+        for folder in ("billing", "incident"):
+            skill_dir = package / "skills" / folder
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text("---\nname: " + folder + "\n---\n" + folder)
+        manager = fixture.manager()
+        with patch.object(manager, "list_tools", return_value=[
+                {"name": "lookup", "annotations": {"readOnlyHint": True}}]):
+            result = manager.activate("mock-plugin", "s", "retrieve ticket status")
+        self.assertEqual(result["availability"], "ready")
+        self.assertEqual(result["skills"], [])
+        self.assertEqual(result["omitted_skill_count"], 2)
+
     def test_catalog_rejects_version_that_escapes_cache(self):
         fixture = Fixture(self.temp.name)
         package = fixture.add("notes-skill")

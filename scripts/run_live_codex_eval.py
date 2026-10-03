@@ -35,6 +35,8 @@ def inspect_events(output: str):
     searches = 0
     activations = 0
     unbound_searches = 0
+    partial_activations = 0
+    unavailable = 0
     for line in output.splitlines():
         try:
             event = json.loads(line)
@@ -61,8 +63,11 @@ def inspect_events(output: str):
                 searches += 1
                 unbound_searches += search.get("context_source") != "session"
             activations += value.get("status") == "activated"
+            partial_activations += value.get("status") == "partially_activated"
+            unavailable += value.get("status") == "unavailable"
     return {"attempted_tools": attempts, "approval_denials": denied,
             "searches": searches, "activations": activations,
+            "partial_activations": partial_activations, "unavailable": unavailable,
             "unbound_searches": unbound_searches}
 
 
@@ -78,6 +83,8 @@ def summarize(runs):
         "manager_tool_approval_denials": sum(run["events_summary"]["approval_denials"] for run in completed),
         "manager_searches": sum(run["events_summary"]["searches"] for run in completed),
         "unbound_manager_searches": sum(run["events_summary"]["unbound_searches"] for run in completed),
+        "partial_activations": sum(run["events_summary"]["partial_activations"] for run in completed),
+        "unavailable_capabilities": sum(run["events_summary"]["unavailable"] for run in completed),
         "positive_activated": sum(run["events_summary"]["activations"] > 0 for run in positives),
         "positive_total": len(positives),
         "negative_activated": sum(run["events_summary"]["activations"] > 0 for run in negatives),

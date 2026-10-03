@@ -145,6 +145,11 @@ class Store:
             ).fetchone()
         return row is not None
 
+    def deactivate(self, session_id: str, capability_id: str) -> None:
+        with self._connect() as db:
+            db.execute("DELETE FROM active WHERE session_id=? AND capability_id=?",
+                       (session_id, capability_id))
+
     def release(self, session_id: str) -> List[str]:
         with self._connect() as db:
             rows = db.execute("SELECT capability_id FROM active WHERE session_id=?", (session_id,)).fetchall()

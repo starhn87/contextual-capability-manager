@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 from .catalog import Entry, load_catalog
 from .decision import CAPABILITY_REJECTION, SUPPLIED_MATERIAL, DecisionRouter, lexical_decision
 from .installer import Installer, check_static_skill
+from .instructions import read_skills
 from .mcp_bridge import connect, server_configs
 from .policy import Policy
 from .store import Store
@@ -243,7 +244,7 @@ class CapabilityManager:
             self.store.mark_decision(search["decision_id"], "not_selected")
             return {"status": "no_confident_match", "search": search}
         try:
-            capability = self.activate(chosen, session_id)
+            capability = self.activate(chosen, session_id, task + " " + context)
         except PermissionError as exc:
             self.store.mark_decision(search["decision_id"], "requires_review")
             return {"status": "requires_review", "search": search,
@@ -251,8 +252,10 @@ class CapabilityManager:
         except Exception:
             self.store.mark_decision(search["decision_id"], "activation_failed")
             raise
-        self.store.mark_decision(search["decision_id"], "activated")
-        return {"status": "activated", "search": search, "capability": capability}
+        status = {"ready": "activated", "partial": "partially_activated",
+                  "unavailable": "unavailable"}[capability["availability"]]
+        self.store.mark_decision(search["decision_id"], status)
+        return {"status": status, "search": search, "capability": capability}
 
     def resolve_static(self, task: str, session_id: str, context: str = "",
                        turn_id: Optional[str] = None) -> Dict[str, Any]:
@@ -268,15 +271,8 @@ class CapabilityManager:
                 raise PermissionError("archive source needs separate review")
             package = self.installer.install(entry)
             check_static_skill(package)
-            paths = [package / "SKILL.md"] + sorted((package / "skills").glob("*/SKILL.md"))
-            skills = []
-            for path in paths:
-                if path.is_file():
-                    if path.stat().st_size > 30000:
-                        raise ValueError("skill instructions exceed the per-file limit")
-                    skills.append({"path": str(path.relative_to(package)),
-                                   "instructions": path.read_text(encoding="utf-8")})
-            if not skills:
+            instructions = read_skills(package, task + " " + context)
+            if not instructions["skills"]:
                 raise ValueError("package has no skill instructions")
             self.store.activate(session_id, chosen)
         except PermissionError as exc:
@@ -297,10 +293,11 @@ class CapabilityManager:
                              turn_id=turn_id, decision_id=search["decision_id"],
                              capability_id=chosen)
         return {"status": "activated", "search": search,
-                "capability": {"id": chosen, "kind": entry.kind, "skills": skills,
+                "capability": {"id": chosen, "kind": entry.kind, **instructions,
+                               "availability": "ready",
                                "mcp_servers": {}, "connection_errors": []}}
 
-    def activate(self, capability_id: str, session_id: str) -> Dict[str, Any]:
+    def activate(self, capability_id: str, session_id: str, task: str = "") -> Dict[str, Any]:
         if not session_id or len(session_id) > 200:
             raise ValueError("invalid session id")
         started = time.monotonic()
@@ -310,23 +307,29 @@ class CapabilityManager:
             entry = self._entry(capability_id)
             verified_id = entry.id
             package = self.installer.install(entry)
-            skills = []
-            paths = [package / "SKILL.md"] + sorted((package / "skills").glob("*/SKILL.md"))
-            for path in paths:
-                if path.is_file():
-                    if path.stat().st_size > 30000:
-                        raise ValueError("skill instructions exceed the per-file limit")
-                    skills.append({"path": str(path.relative_to(package)),
-                                   "instructions": path.read_text(encoding="utf-8")})
             servers = server_configs(package)
-            if not skills and not servers:
+            instructions = read_skills(package, task, allow_unmatched=bool(servers))
+            if not instructions["skills"] and not servers:
                 raise ValueError("installed package has no supported capability")
             self.store.activate(session_id, capability_id)
-            output = {"id": capability_id, "kind": entry.kind, "skills": skills,
+            output = {"id": capability_id, "kind": entry.kind, **instructions,
                       "mcp_servers": {}, "connection_errors": []}
+            approved_tools = 0
             for name in servers:
                 try:
-                    output["mcp_servers"][name] = self.list_tools(session_id, capability_id, name)
+                    tools = self.list_tools(session_id, capability_id, name)
+                    allowed = 0
+                    for tool in tools:
+                        try:
+                            self.policy.check_tool(capability_id, tool.get("name", ""),
+                                tool.get("annotations", {}).get("readOnlyHint") is True)
+                            allowed += 1
+                        except PermissionError:
+                            pass
+                    if not allowed:
+                        raise PermissionError("MCP server has no policy-approved tools")
+                    output["mcp_servers"][name] = tools
+                    approved_tools += allowed
                 except Exception as exc:
                     output["connection_errors"].append({"server": name, "error": str(exc)})
         except Exception as exc:
@@ -335,6 +338,22 @@ class CapabilityManager:
                                  error_type=type(exc).__name__,
                                  duration_ms=int((time.monotonic()-started)*1000))
             raise
+        if not instructions["skills"] and not approved_tools:
+            self.store.deactivate(session_id, capability_id)
+            for key in list(self.connections):
+                if key[:2] == (session_id, capability_id):
+                    self.tool_catalogs.pop(key, None)
+                    try:
+                        self.connections.pop(key).close()
+                    except Exception as exc:
+                        output["connection_errors"].append({"server": key[2], "error": type(exc).__name__})
+            output["availability"] = "unavailable"
+            self.store.add_event(session_id, "activation_failed", "unavailable",
+                                 decision_id=decision_id, capability_id=capability_id,
+                                 error_type="NoUsableCapability",
+                                 duration_ms=int((time.monotonic()-started)*1000))
+            return output
+        output["availability"] = "partial" if output["connection_errors"] else "ready"
         self.store.add_event(session_id, "capability_delivered",
                              "gateway_partial" if output["connection_errors"] else "gateway",
                              decision_id=decision_id, capability_id=capability_id,
@@ -356,6 +375,8 @@ class CapabilityManager:
         return self.connections[key]
 
     def list_tools(self, session_id: str, capability_id: str, server_name: str) -> List[Dict[str, Any]]:
+        if not self.store.is_active(session_id, capability_id):
+            raise PermissionError("capability is not active in this session")
         key = (session_id, capability_id, server_name)
         if key not in self.tool_catalogs:
             response = self._connection(*key).request("tools/list")
