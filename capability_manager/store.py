@@ -303,34 +303,58 @@ class Store:
         since = int(time.time()) - days * 86400
         with self._connect() as db:
             rows = db.execute(
-                """SELECT d.backend, d.model, d.recommendation, f.correct_capability_id
+                """SELECT d.backend, d.model, d.recommendation, f.correct_capability_id,
+                          d.need_probability
                    FROM decisions d LEFT JOIN decision_feedback f ON f.decision_id=d.id
                    WHERE d.created_at>=?""", (since,)
             ).fetchall()
         groups: Dict[str, Dict[str, Any]] = {}
-        for backend, model, recommendation, label in rows:
+        for backend, model, recommendation, label, need_probability in rows:
             key = backend + (":" + model if model else "")
             group = groups.setdefault(key, {
                 "decisions": 0, "selected": 0, "labeled": 0, "correct": 0,
                 "false_positives": 0, "false_negatives": 0, "wrong_capability": 0,
+                "known_cases": 0, "known_correct": 0,
+                "unknown_cases": 0, "unknown_need_detected": 0, "unknown_autoselections": 0,
+                "need_true_positives": 0, "need_false_positives": 0,
+                "need_false_negatives": 0, "need_true_negatives": 0,
             })
             group["decisions"] += 1
             group["selected"] += recommendation is not None
             if label is None:
                 continue
             group["labeled"] += 1
-            if recommendation == (None if label == "none" else label):
+            actual_need = label != "none"
+            predicted_need = (need_probability or 0) >= 0.85
+            need_metric = ("need_true_positives" if actual_need and predicted_need else
+                           "need_false_negatives" if actual_need else
+                           "need_false_positives" if predicted_need else "need_true_negatives")
+            group[need_metric] += 1
+            if label == "other":
+                group["unknown_cases"] += 1
+                group["unknown_need_detected"] += predicted_need
+                group["unknown_autoselections"] += recommendation is not None
+            elif label != "none":
+                group["known_cases"] += 1
+                group["known_correct"] += recommendation == label
+            if recommendation == (None if label in ("none", "other") else label):
                 group["correct"] += 1
-            elif recommendation is None:
+            elif recommendation is None and label not in ("none", "other"):
                 group["false_negatives"] += 1
             elif label == "none":
                 group["false_positives"] += 1
-            else:
+            elif label != "other":
                 group["wrong_capability"] += 1
         for group in groups.values():
             count = group["labeled"]
             group["accuracy"] = group["correct"] / count if count else None
             group["coverage"] = group["selected"] / group["decisions"]
+            group["known_accuracy"] = (group["known_correct"] / group["known_cases"]
+                                        if group["known_cases"] else None)
+            precision_base = group["need_true_positives"] + group["need_false_positives"]
+            recall_base = group["need_true_positives"] + group["need_false_negatives"]
+            group["need_precision"] = group["need_true_positives"] / precision_base if precision_base else None
+            group["need_recall"] = group["need_true_positives"] / recall_base if recall_base else None
         with self._connect() as db:
             observations = db.execute(
                 """SELECT d.activation_status, f.correct_capability_id
@@ -344,5 +368,5 @@ class Store:
             "searched": sum(status == "searched" for status, _ in observations),
             "not_searched": len(skipped),
             "labeled_not_searched": sum(label is not None for label in skipped),
-            "missed_capability": sum(label not in (None, "none") for label in skipped),
+            "missed_capability": sum(label not in (None, "none", "other") for label in skipped),
         }}

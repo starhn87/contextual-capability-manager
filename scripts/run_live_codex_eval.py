@@ -55,8 +55,9 @@ def inspect_events(output: str):
                 continue
             if not isinstance(value, dict):
                 continue
-            search = value.get("search") if item.get("tool") == "resolve_capability" else value
-            if item.get("tool") in ("resolve_capability", "search_capabilities") and isinstance(search, dict):
+            resolvers = ("resolve_capability", "resolve_static_skill")
+            search = value.get("search") if item.get("tool") in resolvers else value
+            if item.get("tool") in (*resolvers, "search_capabilities") and isinstance(search, dict):
                 searches += 1
                 unbound_searches += search.get("context_source") != "session"
             activations += value.get("status") == "activated"

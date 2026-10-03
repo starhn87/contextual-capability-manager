@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "description": "Analyst-reviewed synthetic regression cases from the 2026-10-03 repository review; not a sample of live usage.",
+  "capabilities_from": "cases.json",
+  "cases": [
+    {"id": "boundary-ko-no-install", "category": "negative", "prompt": "회의록 정리 스킬을 설치하지 말고, 일반적인 정리 방법만 설명해줘.", "expected": "none"},
+    {"id": "boundary-ko-no-connect", "category": "negative", "prompt": "티켓 조회 커넥터를 연결하지 말고, 티켓 상태의 뜻만 설명해줘.", "expected": "none"},
+    {"id": "boundary-live-ticket", "category": "indirect", "prompt": "Fetch the current status and assignee of ticket ABC-12 from the issue tracker.", "expected": "ticket-lookup"},
+    {"id": "boundary-inline-explanation", "category": "negative", "prompt": "Use our meeting brief example below to explain how the sections are organized.", "expected": "none"},
+    {"id": "boundary-partial-material", "category": "indirect", "prompt": "The issue title is pasted below. Look up its current assignee and status in our tracker.", "expected": "ticket-lookup"},
+    {"id": "boundary-explain-using", "category": "negative", "prompt": "Explain the benefits of using a meeting brief skill; do not install anything.", "expected": "none"},
+    {"id": "boundary-ko-live-ticket", "category": "indirect", "prompt": "우리 이슈 트래커에서 ABC-12 티켓의 현재 담당자와 상태를 조회해줘.", "expected": "ticket-lookup"},
+    {"id": "boundary-unknown", "category": "unknown", "prompt": "Install a connector to read live warehouse inventory counts.", "expected": "other"},
+    {"id": "boundary-explain-use", "category": "negative", "prompt": "Explain how to use a meeting brief skill.", "expected": "none"},
+    {"id": "boundary-no-install-project", "category": "negative", "prompt": "Do not install anything. Put notes into our required meeting brief format.", "expected": "none"},
+    {"id": "boundary-ko-no-install-project", "category": "negative", "prompt": "우리 팀 회의록 양식에 맞춰 정리하되 새 스킬을 설치하지 마.", "expected": "none"},
+    {"id": "boundary-complete-material", "category": "negative", "prompt": "Read the current ticket status and assignee provided here and summarize the handoff.", "expected": "none"}
+  ]
+}

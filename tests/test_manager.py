@@ -531,6 +531,46 @@ class ManagerTests(unittest.TestCase):
         self.assertEqual(manager.store.get_decision(searched["decision_id"])["task_text"],
                          "summarize meeting notes")
 
+    def test_unknown_labels_are_abstentions_not_known_capability_misses(self):
+        store = Store(Path(self.temp.name) / "state.sqlite3")
+        for index, probability in enumerate((1.0, 0.0)):
+            decision = {"backend": "lexical", "recommendation": None,
+                        "need_probability": probability, "confidence": 0.0}
+            identifier = store.add_decision("s", "c", str(index), None, decision, [], "not_selected")
+            store.add_feedback(identifier, "other")
+        report = store.decision_report()["groups"]["lexical"]
+        self.assertEqual(report["accuracy"], 1.0)
+        self.assertEqual(report["false_negatives"], 0)
+        self.assertEqual(report["unknown_cases"], 2)
+        self.assertEqual(report["unknown_need_detected"], 1)
+        self.assertEqual(report["unknown_autoselections"], 0)
+        self.assertEqual(report["need_recall"], 0.5)
+        self.assertIsNone(report["known_accuracy"])
+
+        identifier = store.add_decision("s", "c", "wrong", None,
+            {"backend": "lexical", "recommendation": "notes-skill", "need_probability": 1.0},
+            [], "activated")
+        store.add_feedback(identifier, "other")
+        report = store.decision_report()["groups"]["lexical"]
+        self.assertEqual(report["unknown_autoselections"], 1)
+        self.assertEqual(report["wrong_capability"], 0)
+
+    def test_configured_decider_cannot_override_explicit_rejection(self):
+        fixture = Fixture(self.temp.name)
+        package = fixture.add("notes-skill")
+        (package / "SKILL.md").write_text("Summarize notes.")
+        answer = {"answers": {"needed": {"noul": 1.0},
+                              "capability": {"choice": "notes-skill", "confidence": 1.0}}}
+        with patch.dict(os.environ, {"CAPMGR_DECIDER_URL": "http://127.0.0.1:8000/v1/systemone"}):
+            with patch("capability_manager.decision.open_no_redirect",
+                       return_value=io.BytesIO(json.dumps(answer).encode())):
+                result = fixture.manager().resolve(
+                    "회의록 정리 스킬을 설치하지 말고 설명해줘.", "s")
+        self.assertEqual(result["status"], "no_confident_match")
+        self.assertIsNone(result["search"]["recommendation"])
+        self.assertEqual(result["search"]["decision"]["need_reason"], "explicit_rejection")
+        self.assertFalse((fixture.data / "cache/notes-skill/1.0.0").exists())
+
     def test_decision_backend_failure_does_not_auto_install(self):
         fixture = Fixture(self.temp.name)
         package = fixture.add("notes-skill")

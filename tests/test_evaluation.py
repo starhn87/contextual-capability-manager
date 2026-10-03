@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from capability_manager.evaluation import DEFAULT_CASES, ROOT, load_cases, run, score_cases
 from capability_manager.shadow import compare
+from scripts.run_live_codex_eval import inspect_events
 
 
 class EvaluationTests(unittest.TestCase):
@@ -48,7 +49,7 @@ class EvaluationTests(unittest.TestCase):
             self.assertEqual(sorted(path.name for path in Path(temp).iterdir()), ["cases.json"])
 
     def test_labeled_routing_regression_gate(self):
-        for path in (DEFAULT_CASES, ROOT / "evals/challenge.json"):
+        for path in (DEFAULT_CASES, ROOT / "evals/challenge.json", ROOT / "evals/boundaries.json"):
             with self.subTest(dataset=path.name):
                 report = run(path)
                 metrics = report["metrics"]
@@ -56,6 +57,22 @@ class EvaluationTests(unittest.TestCase):
                 self.assertEqual(metrics["wrong_capabilities"], 0)
                 self.assertEqual(metrics["unknown_autoselections"], 0)
                 self.assertGreaterEqual(metrics["need_recall"], 0.8)
+
+    def test_review_boundaries_choose_the_expected_capability(self):
+        report = run(ROOT / "evals/boundaries.json")
+        self.assertEqual(report["metrics"]["correct_selection"], report["metrics"]["cases"])
+
+    def test_live_parser_counts_static_and_gateway_searches_equally(self):
+        for tool in ("resolve_capability", "resolve_static_skill"):
+            event = {"type": "item.completed", "item": {
+                "type": "mcp_tool_call", "server": "capability_manager", "tool": tool,
+                "result": {"content": [{"type": "text", "text": json.dumps({
+                    "status": "activated", "search": {"context_source": "argument"}})}]}}}
+            with self.subTest(tool=tool):
+                result = inspect_events(json.dumps(event))
+                self.assertEqual(result["searches"], 1)
+                self.assertEqual(result["unbound_searches"], 1)
+                self.assertEqual(result["activations"], 1)
 
     def test_shadow_comparison_never_calls_remote_without_explicit_flag(self):
         with patch.dict(os.environ, {"CAPMGR_DECIDER_URL": "http://127.0.0.1:8000/v1/systemone"}):

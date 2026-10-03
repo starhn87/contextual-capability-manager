@@ -55,7 +55,12 @@ CAPABILITY_REJECTION = re.compile(
     r"(?:skill|plugin|connector|capability)\b"
     r"|\b(?:don't|do not)\s+(?:install|use|apply)(?:\s+or\s+(?:install|use|apply))?\s+"
     r"(?:one|any|it)\b"
-    r"|(?:스킬|플러그인|커넥터|추가\s*(?:능력|도구)).{0,16}(?:쓰지|사용하지|불필요)",
+    r"|\b(?:don't|do not|never)\s+(?:install|connect|enable|add|use|apply)\s+"
+    r"(?:anything|any\b|new\b|additional\b|a\s+connector|the\s+connector)"
+    r"|(?:스킬|플러그인|커넥터|추가\s*(?:능력|도구))[^.!?\n]{0,32}"
+    r"(?:쓰지|사용하지|설치하지|연결하지|추가하지|적용하지|켜지|불필요)"
+    r"|(?:스킬|플러그인|커넥터)[^.!?\n]{0,20}(?:설치|연결|사용|추가|적용)\s*금지"
+    r"|(?:설치|연결|추가)\s*하지\s*(?:말|마)",
     re.IGNORECASE,
 )
 PROJECT_REFERENCE = re.compile(
@@ -74,6 +79,33 @@ SUPPLIED_MATERIAL = re.compile(
     r"|아래에\s*(?:붙|제공|첨부)|첨부한|붙여둔|제공한",
     re.IGNORECASE,
 )
+EXPLANATION = re.compile(r"\b(?:explain|define|translate)\b|설명|뜻|의미|번역", re.IGNORECASE)
+PRODUCTION_ACTION = re.compile(
+    r"\b(?:create|prepare|turn|put|fill|summarize|follow)\b|정리|작성|만들|요약|따라",
+    re.IGNORECASE,
+)
+EXTERNAL_LOOKUP = re.compile(
+    r"\b(?:fetch|retrieve|look\s+up|query|check|show|read)\b|조회|가져와|불러와|확인",
+    re.IGNORECASE,
+)
+LIVE_REFERENCE = re.compile(r"\b(?:current|latest|live)\b|현재|최신|실시간", re.IGNORECASE)
+
+
+def has_supplied_material(task: str, entry: Optional[Entry] = None) -> bool:
+    """Treat supplied identifiers separately from supplied answers to a lookup."""
+    segments = [part for part in re.split(r"(?<=[.!?])\s+|\n", task)
+                if SUPPLIED_MATERIAL.search(part)]
+    if not segments:
+        return False
+    if entry is None or entry.kind != "connector" or not EXTERNAL_LOOKUP.search(task):
+        return True
+    task_rank = lexical_rank(task, [entry])
+    minimum = max(2, task_rank[0][1] / 2) if task_rank else 2
+    for segment in segments:
+        ranked = lexical_rank(segment, [entry])
+        if ranked and ranked[0][1] >= minimum:
+            return True
+    return False
 
 
 def lexical_decision(task: str, entries: List[Entry], context: str = "") -> Dict[str, object]:
@@ -89,16 +121,29 @@ def lexical_decision(task: str, entries: List[Entry], context: str = "") -> Dict
                          set(ranked[0][0].tags) == set(ranked[1][0].tags))
     confidence = (1.0 if top_score >= 2 and top_score - runner_score >= 2
                   and not duplicate_purpose else 0.0)
-    inferred = (not rejected and not SUPPLIED_MATERIAL.search(task)
-                and bool(PROJECT_REFERENCE.search(task))
-                and bool(WORK_ACTION.search(task)) and confidence >= 0.85)
+    top = ranked[0][0] if ranked else None
+    explanation_only = (bool(EXPLANATION.search(task)) and
+                        not PRODUCTION_ACTION.search(task) and
+                        not (top and top.kind == "connector" and EXTERNAL_LOOKUP.search(task)))
+    # A description of using a skill is not itself a request to activate one.
+    if explanation_only:
+        requested = False
+    live_lookup = (top is not None and top.kind == "connector" and
+                   bool(EXTERNAL_LOOKUP.search(task)) and bool(LIVE_REFERENCE.search(task)))
+    inferred = (not rejected and not explanation_only and not has_supplied_material(task, top)
+                and (live_lookup or (bool(PROJECT_REFERENCE.search(task))
+                                     and bool(WORK_ACTION.search(task))))
+                and confidence >= 0.85)
     need_probability = 1.0 if requested or inferred else 0.0
     winner = ranked[0][0].id if ranked else None
     return {
         "backend": "lexical",
         "need_probability": need_probability,
-        "need_reason": ("explicit_capability_request" if requested else
+        "need_reason": ("explicit_rejection" if rejected else
+                        "explicit_capability_request" if requested else
+                        "live_external_lookup" if inferred and live_lookup else
                         "project_specific_task" if inferred else "no_clear_capability_gap"),
+        "confidence_kind": "heuristic",
         "confidence": confidence,
         "recommendation": winner if need_probability >= 0.85 and confidence >= 0.85 else None,
         "candidates": [{"id": entry.id, "score": score} for entry, score in ranked[:8]],
@@ -170,6 +215,9 @@ class DecisionRouter:
         if winner not in criteria or winner == "none":
             winner = None
         recommendation = winner if confidence >= 0.85 and need_probability >= 0.85 else None
+        rejected = bool(CAPABILITY_REJECTION.search(task))
+        if rejected:
+            recommendation, need_probability = None, 0.0
         probabilities = chosen.get("probabilities", {})
         ranked = sorted(
             ({"id": e.id, "score": float(probabilities.get(e.id, 0))} for e in short),
@@ -179,6 +227,7 @@ class DecisionRouter:
             "backend": "system-one", "model": self.model,
             "need_probability": need_probability,
             "confidence": confidence,
+            "need_reason": "explicit_rejection" if rejected else "configured_decider",
             "recommendation": recommendation,
             "candidates": ranked[:8],
         }
