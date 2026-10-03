@@ -121,13 +121,13 @@ class ManagerTests(unittest.TestCase):
         manager.release("session-a")
         events = list(reversed(manager.store.events(session_id="session-a")))
         self.assertEqual([event["event_type"] for event in events], [
-            "prompt_observed", "capability_searched", "capability_delivered",
-            "outcome_reported", "session_released"])
-        self.assertEqual(events[2]["status"], "static_skill")
+            "session_started", "prompt_observed", "capability_searched", "capability_prepared",
+            "capability_delivered", "outcome_reported", "capability_released", "session_released"])
+        self.assertEqual(events[4]["status"], "static_skill")
         self.assertTrue(all(event["platform"] == "claude" for event in events))
         self.assertTrue(all(event["plugin_version"] for event in events))
         self.assertNotIn("secret meeting notes", json.dumps(events))
-        self.assertEqual(manager.event_report()["events"], 5)
+        self.assertEqual(manager.event_report()["events"], 8)
 
     def test_older_store_gains_event_table_without_losing_decisions(self):
         path = Path(self.temp.name) / "old.sqlite3"
@@ -164,7 +164,7 @@ class ManagerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             manager.record_outcome("session-a", "notes-skill", success=True)
         self.assertEqual(manager.store.events(session_id="session-a")[0]["status"], "rejected")
-        self.assertEqual(manager.store.event_report()["events"], 2)
+        self.assertEqual(manager.store.event_report()["events"], 3)
         self.assertEqual(manager.store.warm_ids(context_key("")), [])
 
     def test_project_context_binding_keeps_prefetch_key_stable(self):
@@ -766,7 +766,7 @@ class ManagerTests(unittest.TestCase):
         env = dict(os.environ)
         env.update({"CAPMGR_CATALOGS": str(fixture.catalog), "CAPMGR_POLICY": str(fixture.policy),
                     "CAPMGR_DATA_DIR": str(fixture.data)})
-        process = subprocess.Popen([sys.executable, "-m", "capability_manager.mcp_server"],
+        process = subprocess.Popen([sys.executable, str(ROOT / "scripts/serve.py")],
                                    cwd=str(ROOT), env=env, stdin=subprocess.PIPE,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:
@@ -782,6 +782,18 @@ class ManagerTests(unittest.TestCase):
             resolved = json.loads(answer["result"]["content"][0]["text"])
             self.assertEqual(resolved["status"], "activated")
             self.assertIn("Use exact owners", resolved["capability"]["skills"][0]["instructions"])
+            status = request(3, "tools/call", {"name": "capability_runtime_status",
+                             "arguments": {"session_id": "same-chat"}})
+            store_id = json.loads(status["result"]["content"][0]["text"])["storage_id"]
+            answer = request(4, "tools/call", {"name": "release_capability_session", "arguments": {
+                "session_id": "same-chat", "expected_storage_id": store_id}})
+            released = json.loads(answer["result"]["content"][0]["text"])
+            self.assertEqual(released["released"], ["notes-skill"])
+            self.assertIn("해제 완료", released["summary_markdown"])
+            self.assertTrue(Path(released["reports"]["md"]).is_file())
+            answer = request(5, "tools/call", {"name": "capability_session_summary", "arguments": {
+                "session_id": "same-chat", "expected_storage_id": store_id}})
+            self.assertTrue(json.loads(answer["result"]["content"][0]["text"])["release_completed"])
         finally:
             process.stdin.close()
             process.wait(timeout=5)

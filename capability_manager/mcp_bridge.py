@@ -98,10 +98,7 @@ class HttpConnection:
         headers = {"Mcp-Session-Id": self.session_id, "MCP-Protocol-Version": PROTOCOL_VERSION}
         if self.token_env and os.environ.get(self.token_env):
             headers["Authorization"] = "Bearer " + os.environ[self.token_env].strip()
-        try:
-            open_no_redirect(Request(self.url, headers=headers, method="DELETE"), timeout=3).close()
-        except Exception:
-            pass
+        open_no_redirect(Request(self.url, headers=headers, method="DELETE"), timeout=3).close()
 
 
 class StdioConnection:
@@ -203,5 +200,12 @@ def connect(config: Dict[str, Any], package: Path, data_dir: Path,
         result = StdioConnection(config, package, data_dir, policy, capability_id)
     else:
         raise ValueError("unsupported MCP transport")
-    result.initialize()
+    try:
+        result.initialize()
+    except Exception:
+        try:
+            result.close()
+        except Exception:
+            pass
+        raise
     return result

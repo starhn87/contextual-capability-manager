@@ -4,8 +4,9 @@
     "capability_manager": {
       "type": "stdio",
       "command": "python3",
-      "args": ["-m", "capability_manager.mcp_server"],
-      "cwd": "${PLUGIN_ROOT}"
+      "args": ["${PLUGIN_ROOT}/scripts/serve.py"],
+      "cwd": "${PLUGIN_ROOT}",
+      "env": {"CAPMGR_PLATFORM": "codex"}
     }
   }
 }

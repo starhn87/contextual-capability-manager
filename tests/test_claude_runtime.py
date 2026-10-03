@@ -17,14 +17,14 @@ class ClaudeRuntimeTests(unittest.TestCase):
             plugins = Path(temporary) / "plugins"
             root = plugins / "cache" / "team" / "contextual-capability-manager" / "0.1.6"
             root.mkdir(parents=True)
-            expected = plugins / "data" / "contextual-capability-manager-team"
-            with patch.dict(os.environ, {"CLAUDE_PLUGIN_DATA": "${CLAUDE_PLUGIN_DATA}"}):
+            expected = (plugins / "data" / "contextual-capability-manager-team").resolve()
+            with patch.dict(os.environ, {"CLAUDE_PLUGIN_DATA": "${CLAUDE_PLUGIN_DATA}"}, clear=True):
                 os.environ.pop("CAPMGR_DATA_DIR", None)
                 self.assertEqual(configure_data_dir(root), expected)
                 self.assertEqual(default_data_dir(), expected)
                 Store(default_data_dir() / "state.sqlite3").activate("session", "skill")
             with patch.dict(os.environ, {"CLAUDE_PLUGIN_DATA": str(expected),
-                                      "CAPMGR_INCLUDE_CLAUDE_CATALOG": "0"}):
+                                      "CAPMGR_INCLUDE_CLAUDE_CATALOG": "0"}, clear=True):
                 os.environ.pop("CAPMGR_DATA_DIR", None)
                 store = Store(default_data_dir() / "state.sqlite3")
                 self.assertTrue(store.is_active("session", "skill"))
@@ -35,7 +35,7 @@ class ClaudeRuntimeTests(unittest.TestCase):
     def test_explicit_absolute_plugin_data_is_preserved(self):
         with tempfile.TemporaryDirectory() as temporary:
             data = Path(temporary) / "data"
-            with patch.dict(os.environ, {"CLAUDE_PLUGIN_DATA": str(data)}):
+            with patch.dict(os.environ, {"CLAUDE_PLUGIN_DATA": str(data)}, clear=True):
                 self.assertEqual(configure_data_dir(Path(temporary) / "source"), data)
                 self.assertEqual(default_data_dir(), data)
 

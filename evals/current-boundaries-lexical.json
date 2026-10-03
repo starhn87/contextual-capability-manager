@@ -1,36 +1,105 @@
 {
   "metrics": {
-    "cases": 11,
-    "need_true_positives": 3,
+    "cases": 12,
+    "need_true_positives": 4,
     "need_false_positives": 0,
     "need_false_negatives": 0,
     "need_true_negatives": 8,
-    "correct_selection": 11,
+    "correct_selection": 12,
     "false_activations": 0,
     "missed_capabilities": 0,
     "wrong_capabilities": 0,
     "unknown_autoselections": 0,
-    "unknown_need_detected": 0,
+    "unknown_need_detected": 1,
     "need_precision": 1.0,
     "need_recall": 1.0,
     "selection_accuracy": 1.0,
     "known_capability_accuracy": 1.0
   },
   "by_category": {
+    "negative": {
+      "cases": 8,
+      "correct_selection": 8,
+      "need_detected": 0
+    },
     "indirect": {
       "cases": 3,
       "correct_selection": 3,
       "need_detected": 3
     },
-    "negative": {
-      "cases": 8,
-      "correct_selection": 8,
-      "need_detected": 0
+    "unknown": {
+      "cases": 1,
+      "correct_selection": 1,
+      "need_detected": 1
     }
   },
   "cases": [
     {
-      "id": "challenge-ticket-implicit",
+      "id": "boundary-ko-no-install",
+      "category": "negative",
+      "expected": "none",
+      "recommendation": null,
+      "predicted_need": false,
+      "need_probability": 0.0,
+      "confidence": 1.0,
+      "correct_selection": true,
+      "candidates": [
+        {
+          "id": "meeting-brief",
+          "score": 5.0
+        }
+      ]
+    },
+    {
+      "id": "boundary-ko-no-connect",
+      "category": "negative",
+      "expected": "none",
+      "recommendation": null,
+      "predicted_need": false,
+      "need_probability": 0.0,
+      "confidence": 1.0,
+      "correct_selection": true,
+      "candidates": [
+        {
+          "id": "ticket-lookup",
+          "score": 3.0
+        }
+      ]
+    },
+    {
+      "id": "boundary-live-ticket",
+      "category": "indirect",
+      "expected": "ticket-lookup",
+      "recommendation": "ticket-lookup",
+      "predicted_need": true,
+      "need_probability": 1.0,
+      "confidence": 1.0,
+      "correct_selection": true,
+      "candidates": [
+        {
+          "id": "ticket-lookup",
+          "score": 25.0
+        }
+      ]
+    },
+    {
+      "id": "boundary-inline-explanation",
+      "category": "negative",
+      "expected": "none",
+      "recommendation": null,
+      "predicted_need": false,
+      "need_probability": 0.0,
+      "confidence": 1.0,
+      "correct_selection": true,
+      "candidates": [
+        {
+          "id": "meeting-brief",
+          "score": 23.0
+        }
+      ]
+    },
+    {
+      "id": "boundary-partial-material",
       "category": "indirect",
       "expected": "ticket-lookup",
       "recommendation": "ticket-lookup",
@@ -46,87 +115,7 @@
       ]
     },
     {
-      "id": "challenge-meeting-implicit",
-      "category": "indirect",
-      "expected": "meeting-brief",
-      "recommendation": "meeting-brief",
-      "predicted_need": true,
-      "need_probability": 1.0,
-      "confidence": 1.0,
-      "correct_selection": true,
-      "candidates": [
-        {
-          "id": "meeting-brief",
-          "score": 7.0
-        }
-      ]
-    },
-    {
-      "id": "challenge-incident-implicit",
-      "category": "indirect",
-      "expected": "incident-playbook",
-      "recommendation": "incident-playbook",
-      "predicted_need": true,
-      "need_probability": 1.0,
-      "confidence": 1.0,
-      "correct_selection": true,
-      "candidates": [
-        {
-          "id": "incident-playbook",
-          "score": 28.0
-        }
-      ]
-    },
-    {
-      "id": "challenge-explain-playbook",
-      "category": "negative",
-      "expected": "none",
-      "recommendation": null,
-      "predicted_need": false,
-      "need_probability": 0.0,
-      "confidence": 1.0,
-      "correct_selection": true,
-      "candidates": [
-        {
-          "id": "incident-playbook",
-          "score": 19.0
-        }
-      ]
-    },
-    {
-      "id": "challenge-translate-ticket",
-      "category": "negative",
-      "expected": "none",
-      "recommendation": null,
-      "predicted_need": false,
-      "need_probability": 0.0,
-      "confidence": 1.0,
-      "correct_selection": true,
-      "candidates": [
-        {
-          "id": "ticket-lookup",
-          "score": 13.0
-        }
-      ]
-    },
-    {
-      "id": "challenge-supplied-ticket",
-      "category": "negative",
-      "expected": "none",
-      "recommendation": null,
-      "predicted_need": false,
-      "need_probability": 0.0,
-      "confidence": 1.0,
-      "correct_selection": true,
-      "candidates": [
-        {
-          "id": "ticket-lookup",
-          "score": 15.0
-        }
-      ]
-    },
-    {
-      "id": "challenge-generic-template",
+      "id": "boundary-explain-using",
       "category": "negative",
       "expected": "none",
       "recommendation": null,
@@ -138,6 +127,42 @@
         {
           "id": "meeting-brief",
           "score": 23.0
+        }
+      ]
+    },
+    {
+      "id": "boundary-ko-live-ticket",
+      "category": "indirect",
+      "expected": "ticket-lookup",
+      "recommendation": "ticket-lookup",
+      "predicted_need": true,
+      "need_probability": 1.0,
+      "confidence": 1.0,
+      "correct_selection": true,
+      "candidates": [
+        {
+          "id": "ticket-lookup",
+          "score": 5.0
+        },
+        {
+          "id": "meeting-brief",
+          "score": 2.0
+        }
+      ]
+    },
+    {
+      "id": "boundary-unknown",
+      "category": "unknown",
+      "expected": "other",
+      "recommendation": null,
+      "predicted_need": true,
+      "need_probability": 1.0,
+      "confidence": 0.0,
+      "correct_selection": true,
+      "candidates": [
+        {
+          "id": "design-system",
+          "score": 1.0
         },
         {
           "id": "ticket-lookup",
@@ -146,7 +171,7 @@
       ]
     },
     {
-      "id": "challenge-no-lookup",
+      "id": "boundary-explain-use",
       "category": "negative",
       "expected": "none",
       "recommendation": null,
@@ -156,13 +181,13 @@
       "correct_selection": true,
       "candidates": [
         {
-          "id": "ticket-lookup",
-          "score": 12.0
+          "id": "meeting-brief",
+          "score": 23.0
         }
       ]
     },
     {
-      "id": "challenge-provided-template",
+      "id": "boundary-no-install-project",
       "category": "negative",
       "expected": "none",
       "recommendation": null,
@@ -174,15 +199,27 @@
         {
           "id": "meeting-brief",
           "score": 28.0
-        },
-        {
-          "id": "ticket-lookup",
-          "score": 1.0
         }
       ]
     },
     {
-      "id": "challenge-provided-ticket",
+      "id": "boundary-ko-no-install-project",
+      "category": "negative",
+      "expected": "none",
+      "recommendation": null,
+      "predicted_need": false,
+      "need_probability": 0.0,
+      "confidence": 1.0,
+      "correct_selection": true,
+      "candidates": [
+        {
+          "id": "meeting-brief",
+          "score": 5.0
+        }
+      ]
+    },
+    {
+      "id": "boundary-complete-material",
       "category": "negative",
       "expected": "none",
       "recommendation": null,
@@ -193,32 +230,20 @@
       "candidates": [
         {
           "id": "ticket-lookup",
-          "score": 16.0
+          "score": 17.0
         },
         {
           "id": "incident-playbook",
           "score": 4.0
-        }
-      ]
-    },
-    {
-      "id": "challenge-explain-design",
-      "category": "negative",
-      "expected": "none",
-      "recommendation": null,
-      "predicted_need": false,
-      "need_probability": 0.0,
-      "confidence": 1.0,
-      "correct_selection": true,
-      "candidates": [
+        },
         {
           "id": "design-system",
-          "score": 28.0
+          "score": 1.0
         }
       ]
     }
   ],
-  "dataset": "evals/challenge.json",
+  "dataset": "evals/boundaries.json",
   "backend": "lexical",
   "version": "0.1.8",
   "decision_backends": [

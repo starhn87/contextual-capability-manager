@@ -2,8 +2,12 @@ import argparse
 import json
 from pathlib import Path
 
-from .manager import CapabilityManager, default_config_dir
+from . import __version__
+from .manager import CapabilityManager, default_config_dir, default_data_dir
 from .onboarding import register_source
+from .runtime import check_storage, platform, status as runtime_status, storage_id
+from .session_summary import receipt
+from .store import Store
 
 
 def main() -> None:
@@ -12,6 +16,7 @@ def main() -> None:
     parser.add_argument("--policy", type=Path)
     parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--config-dir", type=Path)
+    parser.add_argument("--expected-storage-id")
     sub = parser.add_subparsers(dest="command", required=True)
     register = sub.add_parser("catalog-add", help="Register one reviewed source for future sessions")
     register.add_argument("--id", required=True)
@@ -73,6 +78,11 @@ def main() -> None:
     prefetch.add_argument("context")
     release = sub.add_parser("release")
     release.add_argument("--session", required=True)
+    summary = sub.add_parser("session-report", help="Show installation, usage and cleanup for one session")
+    summary.add_argument("--session", required=True)
+    summary.add_argument("--format", choices=("markdown", "json"), default="markdown")
+    status = sub.add_parser("status", help="Diagnose storage alignment and hook failures")
+    status.add_argument("--session")
     args = parser.parse_args()
     if args.command == "catalog-add":
         config_dir = args.config_dir or default_config_dir()
@@ -87,7 +97,24 @@ def main() -> None:
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return
+    # Reporting and diagnostics must work even if the current catalog is broken or missing.
+    if args.command in ("session-report", "status"):
+        directory = args.data_dir or default_data_dir()
+        if args.command != "status":
+            check_storage(directory, args.expected_storage_id)
+        store = Store(directory / "state.sqlite3", platform(), __version__)
+        if args.command == "status":
+            result = runtime_status(directory, store, args.session)
+        else:
+            result = receipt(store, args.session, directory)
+            result["storage_id"] = storage_id(directory)
+            if args.format == "markdown":
+                print(result["summary_markdown"])
+                return
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return
     manager = CapabilityManager(args.catalog, args.policy, args.data_dir)
+    manager.check_storage(args.expected_storage_id)
     if args.command == "search":
         result = manager.search(args.task, args.context, args.session, args.turn)
     elif args.command == "resolve":

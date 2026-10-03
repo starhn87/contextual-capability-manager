@@ -51,19 +51,7 @@
       "candidates": [
         {
           "id": "meeting-brief",
-          "score": 15.0
-        },
-        {
-          "id": "incident-playbook",
-          "score": 2.0
-        },
-        {
-          "id": "design-system",
-          "score": 1.0
-        },
-        {
-          "id": "ticket-lookup",
-          "score": 1.0
+          "score": 35.0
         }
       ]
     },
@@ -99,19 +87,7 @@
       "candidates": [
         {
           "id": "incident-playbook",
-          "score": 13.0
-        },
-        {
-          "id": "meeting-brief",
-          "score": 3.0
-        },
-        {
-          "id": "design-system",
-          "score": 2.0
-        },
-        {
-          "id": "ticket-lookup",
-          "score": 2.0
+          "score": 19.0
         }
       ]
     },
@@ -127,19 +103,7 @@
       "candidates": [
         {
           "id": "ticket-lookup",
-          "score": 12.0
-        },
-        {
-          "id": "incident-playbook",
-          "score": 3.0
-        },
-        {
-          "id": "meeting-brief",
-          "score": 3.0
-        },
-        {
-          "id": "design-system",
-          "score": 1.0
+          "score": 16.0
         }
       ]
     },
@@ -155,19 +119,7 @@
       "candidates": [
         {
           "id": "design-system",
-          "score": 12.0
-        },
-        {
-          "id": "incident-playbook",
-          "score": 3.0
-        },
-        {
-          "id": "meeting-brief",
-          "score": 2.0
-        },
-        {
-          "id": "ticket-lookup",
-          "score": 2.0
+          "score": 35.0
         }
       ]
     },
@@ -183,19 +135,7 @@
       "candidates": [
         {
           "id": "meeting-brief",
-          "score": 14.0
-        },
-        {
-          "id": "design-system",
-          "score": 1.0
-        },
-        {
-          "id": "incident-playbook",
-          "score": 1.0
-        },
-        {
-          "id": "ticket-lookup",
-          "score": 1.0
+          "score": 38.0
         }
       ]
     },
@@ -211,7 +151,7 @@
       "candidates": [
         {
           "id": "meeting-brief",
-          "score": 7.0
+          "score": 9.0
         },
         {
           "id": "ticket-lookup",
@@ -231,19 +171,7 @@
       "candidates": [
         {
           "id": "incident-playbook",
-          "score": 14.0
-        },
-        {
-          "id": "design-system",
-          "score": 2.0
-        },
-        {
-          "id": "meeting-brief",
-          "score": 2.0
-        },
-        {
-          "id": "ticket-lookup",
-          "score": 2.0
+          "score": 21.0
         }
       ]
     },
@@ -259,19 +187,7 @@
       "candidates": [
         {
           "id": "ticket-lookup",
-          "score": 16.0
-        },
-        {
-          "id": "meeting-brief",
-          "score": 3.0
-        },
-        {
-          "id": "incident-playbook",
-          "score": 2.0
-        },
-        {
-          "id": "design-system",
-          "score": 1.0
+          "score": 24.0
         }
       ]
     },
@@ -287,19 +203,11 @@
       "candidates": [
         {
           "id": "design-system",
-          "score": 12.0
+          "score": 33.0
         },
         {
           "id": "ticket-lookup",
-          "score": 3.0
-        },
-        {
-          "id": "incident-playbook",
-          "score": 2.0
-        },
-        {
-          "id": "meeting-brief",
-          "score": 2.0
+          "score": 1.0
         }
       ]
     },
@@ -327,10 +235,6 @@
         {
           "id": "design-system",
           "score": 1.0
-        },
-        {
-          "id": "meeting-brief",
-          "score": 1.0
         }
       ]
     },
@@ -343,16 +247,7 @@
       "need_probability": 0.0,
       "confidence": 0.0,
       "correct_selection": true,
-      "candidates": [
-        {
-          "id": "incident-playbook",
-          "score": 1.0
-        },
-        {
-          "id": "meeting-brief",
-          "score": 1.0
-        }
-      ]
+      "candidates": []
     },
     {
       "id": "negative-rejection",
@@ -366,11 +261,7 @@
       "candidates": [
         {
           "id": "incident-playbook",
-          "score": 7.0
-        },
-        {
-          "id": "meeting-brief",
-          "score": 1.0
+          "score": 14.0
         }
       ]
     },
@@ -389,14 +280,6 @@
           "score": 1.0
         },
         {
-          "id": "incident-playbook",
-          "score": 1.0
-        },
-        {
-          "id": "meeting-brief",
-          "score": 1.0
-        },
-        {
           "id": "ticket-lookup",
           "score": 1.0
         }
@@ -411,25 +294,12 @@
       "need_probability": 1.0,
       "confidence": 0.0,
       "correct_selection": true,
-      "candidates": [
-        {
-          "id": "incident-playbook",
-          "score": 3.0
-        },
-        {
-          "id": "meeting-brief",
-          "score": 3.0
-        },
-        {
-          "id": "design-system",
-          "score": 1.0
-        }
-      ]
+      "candidates": []
     }
   ],
   "dataset": "evals/cases.json",
   "backend": "lexical",
-  "version": "0.1.4",
+  "version": "0.1.8",
   "decision_backends": [
     "lexical"
   ]

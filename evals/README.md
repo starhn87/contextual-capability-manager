@@ -6,10 +6,14 @@
 python3 -m capability_manager.evaluation --output /private/tmp/capability-eval.json
 python3 -m capability_manager.evaluation --cases evals/challenge.json \
   --output /private/tmp/capability-challenge.json
+python3 -m capability_manager.evaluation --cases evals/boundaries.json \
+  --output /private/tmp/capability-boundaries.json
 python3 -m unittest discover -s tests -v
 ```
 
 `cases.json`은 직접·간접·부정·목록에 없는 능력 요청을, `challenge.json`은 추가 간접·부정 사례를 다룹니다. 각 사례의 `expected`는 사용할 카탈로그 ID, `none`(추가 능력 불필요), `other`(필요하지만 목록에 없음) 중 하나입니다. `available_ids`는 해당 사례에서 볼 수 있는 후보를 제한합니다. 사례를 수정하기 전에 현재 결과를 별도로 저장하고, 오판 사례를 추가할 때는 정답 이유를 검토하세요. 합성 사례에서 높은 점수는 실사용 정확도의 증거가 아닙니다.
+
+`boundaries.json`은 2026-10-03 분석에서 발견한 설치·연결 거절, 설명만 하는 작업, 제공된 자료의 범위, 소유 표현 없는 외부 조회를 검증하는 12건의 합성 회귀 사례입니다. 이 집합은 개선을 유도한 사례이므로 독립적인 실사용 검증 집합으로 취급하지 않습니다. 결과는 [current-boundaries-lexical.json](current-boundaries-lexical.json)에 저장합니다.
 
 초기 `0.1.0`의 16건 기준선은 [baseline-lexical.json](baseline-lexical.json)에, 현재 결과는 [current-lexical.json](current-lexical.json)과 [current-challenge-lexical.json](current-challenge-lexical.json)에 저장했습니다. 새 CLI 세션에서 관찰한 실패·수정 과정은 [live-cli-2026-09-30.md](live-cli-2026-09-30.md)에 있습니다.
 0.1.4 설치 후 읽기 전용 CLI 검증과 승인 정책에 따른 한계는 [live-cli-2026-09-30-0.1.4.md](live-cli-2026-09-30-0.1.4.md)에 있습니다.
@@ -36,7 +40,7 @@ python3 scripts/run_live_codex_eval.py --repeat 2
 | `아래에 붙인 양식대로 이 메모를 정리해줘` | 제공된 양식을 사용하고 추가 설치 없음 |
 | `현재 티켓 담당자를 조회해줘` | 기본 목록에 없으므로 임의의 능력 설치 없음 |
 
-각 시험에서 SessionStart의 프로젝트 키 연결, UserPromptSubmit의 관찰 기록, MCP 탐색·활성화, 사용 결과, SessionEnd의 권한 해제를 확인합니다. `record_capability_result`의 성공 값은 실제 작업 결과를 확인한 뒤에만 기록합니다. 플러그인·커넥터 시험은 읽기 도구의 주석과 정책 허용 목록, 인증 실패, 쓰기 거부까지 확인합니다.
+각 시험에서 SessionStart의 프로젝트 키 연결, UserPromptSubmit의 관찰 기록, MCP 탐색·활성화, 사용 결과, 마지막 능력 사용 후 release의 요약, SessionEnd의 권한 해제를 확인합니다. 훅의 `storage_id`를 `expected_storage_id`로 전달해 같은 저장소인지 확인합니다. `record_capability_result`의 성공 값은 실제 작업 결과를 확인한 뒤에만 기록합니다. 플러그인·커넥터 시험은 읽기 도구의 주석과 정책 허용 목록, 인증 실패, 쓰기 거부까지 확인합니다. `unavailable`과 `partially_activated`를 정상 전달과 구분하고 캐시가 있다는 이유만으로 활성화를 성공 처리하지 않습니다.
 
 ## 3. 실사용 라벨과 수정
 
@@ -46,11 +50,15 @@ python3 -m capability_manager.cli --data-dir <PLUGIN_DATA> feedback <decision_id
 python3 -m capability_manager.cli --data-dir <PLUGIN_DATA> report --days 30
 python3 -m capability_manager.cli --data-dir <PLUGIN_DATA> event-report --days 30
 python3 -m capability_manager.cli --data-dir <PLUGIN_DATA> events --session <session_id>
+python3 -m capability_manager.cli --data-dir <PLUGIN_DATA> status --session <session_id>
+python3 -m capability_manager.cli --data-dir <PLUGIN_DATA> session-report --session <session_id>
 ```
 
 선택된 판단과 `not_searched`를 모두 표본 추출해 원래 채팅을 보며 라벨을 붙입니다. 기본 기록은 요청 원문을 저장하지 않으므로 나중에 해시만으로 정답을 복원할 수 없습니다. 모든 자동 선택·실패는 검토하고, 미탐색 건도 무작위로 뽑아야 누락률의 편향을 줄일 수 있습니다. 설치 성공과 정답 라벨은 별개입니다.
 
 Codex와 Claude의 `PLUGIN_DATA`는 별개이므로 두 DB를 각각 조회합니다. 0.1.7 이후의 `capability_events`에는 `platform`과 `plugin_version`이 들어갑니다. `capability_delivered`는 지침이나 게이트웨이가 전달됐다는 뜻이며 실제 작업 성공의 증거가 아닙니다. `tool_call`에는 도구 이름·상태·지연 시간만 기록하고 인수와 응답은 저장하지 않습니다. 직접 설치한 네이티브 플러그인의 사용은 이 DB에서 알 수 없습니다.
+
+실제 효용을 평가하려면 같은 유형의 작업을 관리자 사용·미사용 조건으로 비교해 성공률, 소요 시간, 수정 횟수를 별도로 기록해야 합니다. 현재 단계 지연은 탐색·전달·호출의 일부 시간이며 전체 작업 시간이나 절감 시간의 대체 지표가 아닙니다. 고유 세션 수와 명시적 정답 라벨 수를 함께 보고, 같은 세션의 반복 호출을 독립 표본으로 세지 않습니다. 설치 기록·사용 결과·정답 라벨·최종 답변 품질은 각각 다른 증거입니다.
 
 ## 4. Jev·Kev 비교 실행
 

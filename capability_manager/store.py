@@ -76,6 +76,20 @@ class Store:
                 );
                 CREATE INDEX IF NOT EXISTS capability_events_session
                     ON capability_events(session_id, created_at);
+                CREATE TABLE IF NOT EXISTS session_capabilities (
+                    session_id TEXT NOT NULL,
+                    capability_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    version TEXT NOT NULL,
+                    package_state TEXT NOT NULL,
+                    availability TEXT NOT NULL,
+                    delivery_type TEXT NOT NULL,
+                    first_prepared_at INTEGER NOT NULL,
+                    last_prepared_at INTEGER NOT NULL,
+                    released_at INTEGER,
+                    PRIMARY KEY(session_id, capability_id)
+                );
             """)
             columns = {row[1] for row in db.execute("PRAGMA table_info(outcomes)")}
             if "session_id" not in columns:
@@ -96,7 +110,8 @@ class Store:
                   duration_ms: Optional[int] = None) -> str:
         allowed = {"prompt_observed", "capability_searched", "capability_delivered",
                    "activation_failed", "tool_call", "outcome_reported",
-                   "feedback_recorded", "session_released"}
+                   "feedback_recorded", "session_released", "session_started",
+                   "capability_prepared", "capability_released", "connection_cleanup"}
         if event_type not in allowed or not session_id:
             raise ValueError("invalid capability event")
         identifier = uuid.uuid4().hex
@@ -124,7 +139,17 @@ class Store:
             rows = db.execute("""SELECT platform, plugin_version, event_type, status,
                 COUNT(*) FROM capability_events WHERE created_at>=?
                 GROUP BY platform, plugin_version, event_type, status""", (since,)).fetchall()
+            stages = db.execute("""SELECT event_type, COUNT(DISTINCT session_id)
+                FROM capability_events WHERE created_at>=? GROUP BY event_type""", (since,)).fetchall()
+            sessions = db.execute("SELECT COUNT(DISTINCT session_id) FROM capability_events "
+                                  "WHERE created_at>=?", (since,)).fetchone()[0]
+            durations = db.execute("""SELECT event_type, COUNT(*), AVG(duration_ms) FROM capability_events
+                WHERE created_at>=? AND duration_ms IS NOT NULL GROUP BY event_type""", (since,)).fetchall()
         return {"days": days, "events": sum(row[4] for row in rows),
+                "unique_sessions": sessions,
+                "unique_sessions_by_event": {event: count for event, count in stages},
+                "latency_ms_by_event": {event: {"samples": count, "mean": round(mean, 2)}
+                                        for event, count, mean in durations},
                 "groups": [{"platform": platform, "plugin_version": version,
                             "event_type": event_type, "status": status, "count": count}
                            for platform, version, event_type, status, count in rows]}
@@ -153,9 +178,102 @@ class Store:
     def release(self, session_id: str) -> List[str]:
         with self._connect() as db:
             rows = db.execute("SELECT capability_id FROM active WHERE session_id=?", (session_id,)).fetchall()
+            now = int(time.time())
+            for (capability_id,) in rows:
+                # Preserve a truthful unknown origin for leases created by older versions.
+                db.execute("""INSERT OR IGNORE INTO session_capabilities
+                    VALUES(?, ?, ?, 'unknown', 'unknown', 'unknown', 'ready', 'unknown', ?, ?, ?)""",
+                    (session_id, capability_id, capability_id, now, now, now))
+                db.execute("UPDATE session_capabilities SET released_at=? "
+                           "WHERE session_id=? AND capability_id=?", (now, session_id, capability_id))
             db.execute("DELETE FROM active WHERE session_id=?", (session_id,))
             db.execute("DELETE FROM session_contexts WHERE session_id=?", (session_id,))
         return [row[0] for row in rows]
+
+    def record_preparation(self, session_id: str, metadata: Dict[str, Any],
+                           package_state: str = "not_prepared") -> None:
+        if package_state not in ("not_prepared", "installed", "cache_reused"):
+            raise ValueError("invalid package preparation state")
+        now = int(time.time())
+        with self._connect() as db:
+            db.execute("""INSERT INTO session_capabilities
+                VALUES(?, ?, ?, ?, ?, ?, 'prepared', 'unknown', ?, ?, NULL)
+                ON CONFLICT(session_id, capability_id) DO UPDATE SET
+                    name=excluded.name, kind=excluded.kind, version=excluded.version,
+                    package_state=CASE WHEN session_capabilities.package_state='installed'
+                        THEN 'installed' WHEN excluded.package_state='not_prepared'
+                        THEN session_capabilities.package_state ELSE excluded.package_state END,
+                    first_prepared_at=CASE WHEN session_capabilities.kind='unknown'
+                        THEN excluded.first_prepared_at ELSE session_capabilities.first_prepared_at END,
+                    availability='prepared', delivery_type='unknown', released_at=NULL,
+                    last_prepared_at=excluded.last_prepared_at""",
+                (session_id, metadata["id"], metadata["name"], metadata["kind"], metadata["version"],
+                 package_state, now, now))
+
+    def mark_delivery(self, session_id: str, capability_id: str, availability: str,
+                      delivery_type: str = "unknown") -> None:
+        with self._connect() as db:
+            db.execute("UPDATE session_capabilities SET availability=?, delivery_type=? "
+                       "WHERE session_id=? AND capability_id=?",
+                       (availability, delivery_type, session_id, capability_id))
+
+    def session_summary(self, session_id: str) -> Dict[str, Any]:
+        if not isinstance(session_id, str) or not session_id or len(session_id) > 200:
+            raise ValueError("invalid session id")
+        now = int(time.time())
+        with self._connect() as db:
+            db.row_factory = sqlite3.Row
+            rows = db.execute("""SELECT c.*, a.lease_until FROM session_capabilities c
+                LEFT JOIN active a ON a.session_id=c.session_id AND a.capability_id=c.capability_id
+                WHERE c.session_id=? ORDER BY c.first_prepared_at, c.capability_id""", (session_id,)).fetchall()
+            legacy = db.execute("""SELECT session_id, capability_id, lease_until FROM active a
+                WHERE session_id=? AND NOT EXISTS (SELECT 1 FROM session_capabilities c
+                WHERE c.session_id=a.session_id AND c.capability_id=a.capability_id)""", (session_id,)).fetchall()
+            events = db.execute("""SELECT capability_id, status, COUNT(*) AS count
+                FROM capability_events WHERE session_id=? AND event_type='tool_call'
+                GROUP BY capability_id, status""", (session_id,)).fetchall()
+            outcomes = db.execute("""SELECT capability_id, success FROM outcomes WHERE session_id=?
+                ORDER BY created_at DESC, rowid DESC""", (session_id,)).fetchall()
+            released = db.execute("SELECT COUNT(*) FROM capability_events "
+                                  "WHERE session_id=? AND event_type='session_released'", (session_id,)).fetchone()[0]
+            cleanup_errors = db.execute("""SELECT capability_id, error_type FROM capability_events
+                WHERE session_id=? AND event_type='connection_cleanup' AND status='error'
+                ORDER BY created_at, rowid""", (session_id,)).fetchall()
+        rows = [dict(row) for row in rows]
+        rows.extend({**dict(row), "name": row["capability_id"], "kind": "unknown", "version": "unknown",
+                     "package_state": "unknown", "availability": "ready", "delivery_type": "unknown",
+                     "first_prepared_at": None, "last_prepared_at": None, "released_at": None}
+                    for row in legacy)
+        latest_outcomes = {}
+        for row in outcomes:
+            latest_outcomes.setdefault(row["capability_id"], "success" if row["success"] else "failure")
+        capabilities = []
+        for row in rows:
+            item = dict(row)
+            identifier = item.pop("capability_id")
+            item.pop("session_id")
+            lease = item.pop("lease_until")
+            if item["kind"] == "unknown":
+                item["first_prepared_at"] = item["last_prepared_at"] = None
+            active = lease is not None and lease >= now
+            item["id"] = identifier
+            item["access_state"] = ("active" if active else "released" if item["released_at"] is not None
+                                    else "expired" if lease is not None else "inactive")
+            item["tool_successes"] = sum(event["count"] for event in events
+                                         if event["capability_id"] == identifier and event["status"] == "completed")
+            item["tool_errors"] = sum(event["count"] for event in events
+                                      if event["capability_id"] == identifier and event["status"] != "completed")
+            item["reported_result"] = latest_outcomes.get(identifier, "not_reported")
+            capabilities.append(item)
+        counts = {"capabilities": len(capabilities),
+                  "new_packages": sum(item["package_state"] == "installed" for item in capabilities),
+                  "cache_reused": sum(item["package_state"] == "cache_reused" for item in capabilities),
+                  "active": sum(item["access_state"] == "active" for item in capabilities),
+                  "released": sum(item["access_state"] == "released" for item in capabilities)}
+        return {"session_id": session_id, "scope": "manager-mediated", "platform": self.platform,
+                "plugin_version": self.plugin_version, "release_completed": released > 0 and not counts["active"],
+                "counts": counts, "capabilities": capabilities,
+                "cleanup_errors": [dict(row) for row in cleanup_errors]}
 
     def set_session_context(self, session_id: str, context_key: str) -> None:
         with self._connect() as db:

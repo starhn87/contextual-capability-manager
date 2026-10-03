@@ -7,6 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from capability_manager.manager import CapabilityManager
+from capability_manager.runtime import storage_id, record_hook_failure
 
 
 def main():
@@ -17,13 +18,18 @@ def main():
     if not all(isinstance(value, str) and value for value in (session_id, turn_id, prompt)):
         return
     try:
-        result = CapabilityManager(include_codex_catalog=False).observe_prompt(
+        manager = CapabilityManager(include_codex_catalog=False)
+        result = manager.observe_prompt(
             prompt, session_id, turn_id, event.get("cwd", "")
         )
-    except Exception:
+    except Exception as exc:
+        record_hook_failure("UserPromptSubmit", session_id, exc, Path(__file__).resolve().parent.parent)
+        print(json.dumps({"systemMessage": "Capability manager prompt observation failed (" +
+                          type(exc).__name__ + "). This request was not observed."}))
         return
     candidate = result.get("suggested_capability_id")
-    guidance = "Capability manager turn_id: " + turn_id + ". "
+    guidance = ("Capability manager turn_id: " + turn_id + ". Capability manager storage_id: " +
+                storage_id(manager.data_dir) + ". Pass it as expected_storage_id. ")
     if candidate:
         if result.get("need_reason") == "project_specific_task":
             guidance += (

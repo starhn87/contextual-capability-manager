@@ -1,6 +1,6 @@
 {
   "name": "contextual-capability-manager",
-  "version": "0.1.7+codex.20260930142846",
+  "version": "0.1.8",
   "description": "Discover, install, and use approved agent skills and MCP tools during an active task.",
   "author": {
     "name": "Local developer"
@@ -20,8 +20,7 @@
       "type": "stdio",
       "command": "python3",
       "args": [
-        "-m",
-        "capability_manager.mcp_server"
+        "${PLUGIN_ROOT}/scripts/serve.py"
       ],
       "cwd": "${PLUGIN_ROOT}",
       "env": {

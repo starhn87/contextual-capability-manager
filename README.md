@@ -8,10 +8,13 @@
 python3 -m unittest discover -s tests -v
 python3 -m capability_manager.evaluation
 python3 -m capability_manager.evaluation --cases evals/challenge.json
+python3 -m capability_manager.evaluation --cases evals/boundaries.json
 python3 -m capability_manager.cli --data-dir /private/tmp/capability-manager-demo \
   resolve 'summarize meeting notes' --session demo-1 --context sample-project
 python3 -m capability_manager.cli --data-dir /private/tmp/capability-manager-demo \
   release --session demo-1
+python3 -m capability_manager.cli --data-dir /private/tmp/capability-manager-demo \
+  session-report --session demo-1
 ```
 
 로컬 Codex 마켓플레이스 패키지를 만들려면 `python3 scripts/build_marketplace.py`를 실행합니다. 생성된 `dist/marketplace`에는 설치 가능한 플러그인과 마켓플레이스 목록이 들어 있습니다. 검토 후 `codex plugin marketplace add <절대 경로의 dist/marketplace>`와 `codex plugin add contextual-capability-manager@local-capabilities`로 설치할 수 있습니다. 설치 후 새 채팅을 시작하고 `/hooks`에서 SessionStart, UserPromptSubmit, SessionEnd를 각각 검토·신뢰해야 합니다. 관리자 플러그인은 이후 작업 중 필요한 *다른* 능력을 MCP 게이트웨이를 통해 같은 채팅에 적용합니다.
@@ -43,7 +46,7 @@ python3 -m capability_manager.cli catalog-add \
 - `examples/policy.json`: 설치 시 미리 허용한 게시자, 종류, 로컬 경로, 다운로드·커넥터 호스트, 실행 여부, 읽기·쓰기 도구 목록입니다. 모델의 추천 결과와 무관하게 코드가 이 정책을 검사합니다. 다른 파일을 쓰려면 `CAPMGR_POLICY`를 지정합니다.
 - `CAPMGR_INCLUDE_CODEX_CATALOG=1`: Codex CLI의 사용 가능한 로컬 마켓플레이스 패키지를 검색 목록에 추가합니다. 해당 출처는 정책의 게시자·경로 조건을 만족해야 활성화할 수 있습니다.
 - `CAPMGR_INCLUDE_CLAUDE_CATALOG=0`: Claude의 자동 마켓플레이스 검색을 끕니다. 기본값은 Claude 플러그인 실행 시 켜짐입니다. 테스트용 `CAPMGR_CLAUDE_PLUGINS_DIR`로 등록 목록의 위치를 바꿀 수 있습니다. 별도 정책 파일을 제공하면 그 정책이 자동 허용 범위보다 우선합니다.
-- `CAPMGR_DATA_DIR`: 패키지 캐시와 사용 기록을 저장할 폴더입니다. Codex에서는 `PLUGIN_DATA`, Claude Code에서는 `CLAUDE_PLUGIN_DATA`가 기본값입니다. 판단 기록은 기본적으로 작업 원문 대신 해시, 후보 ID·점수, 선택, 판단기, 활성화 상태만 저장합니다.
+- `CAPMGR_DATA_DIR`: 패키지 캐시와 사용 기록을 저장할 절대 경로입니다. `CAPMGR_DATA_DIR`, `PLUGIN_DATA`, `CLAUDE_PLUGIN_DATA` 순으로 유효한 경로를 사용합니다. Claude 설치 경로에서는 데이터 폴더를 유추하며, 독립 실행 기본값은 `~/.local/share/contextual-capability-manager`입니다. 훅·MCP에 같은 경로를 지정해야 합니다. 판단 기록은 기본적으로 작업 원문 대신 해시, 후보 ID·점수, 선택, 판단기, 활성화 상태만 저장합니다.
 - `CAPMGR_CONFIG_DIR`: 등록한 목록·정책의 공통 위치입니다. 기본값은 `~/.config/contextual-capability-manager`입니다. 기존 플러그인 데이터 폴더의 목록·정책도 공통 설정이 없으면 읽습니다.
 - `CAPMGR_STORE_DECISION_TEXT=1`: 오판 사례를 나중에 직접 검토하려고 판단에 전달한 작업 설명을 로컬 DB에 저장할 때만 켭니다. 기본값은 꺼짐이며, 켜면 최대 2,000자를 저장합니다.
 - `CAPMGR_DECIDER_URL`: 선택 사항인 Jev 방식 결정 API의 `/v1/systemone` URL입니다. `CAPMGR_DECIDER_MODEL`에는 Jev·Kev·Jeff 서버가 제공하는 모델명을, `CAPMGR_DECIDER_KEY_ENV`에는 인증 토큰을 담은 환경 변수명을 넣습니다. 해당 호스트를 정책의 `decision_hosts`에도 허용해야 합니다. 토큰을 쓰는 경우 변수명을 `allowed_secret_env`에 추가합니다. 설정하지 않으면 간단한 로컬 단어 매칭을 사용합니다.
@@ -51,11 +54,32 @@ python3 -m capability_manager.cli catalog-add \
 원격 결정 API를 설정하면 작업 설명과 짧은 맥락이 해당 서버로 전송됩니다. 모델의 선택 신뢰도와 필요성 확률이 각각 0.85 이상일 때만 자동 활성화합니다. 원격 결정을 설정하지 않은 경우, 로컬 판단은 추가 능력 요청이 명시되었거나 프로젝트 전용 절차·자료를 실제 작업에 써야 하고 관련 후보가 분명할 때만 활성화를 추천합니다. 단순 설명·일상적인 작업, 요청 안에 필요한 자료가 이미 제공된 작업, 후보가 모호한 작업은 보류합니다. 이 값과 규칙은 시제품의 보수적 초기값이며 실제 사용 기록으로 검증해야 합니다.
 결정 API에 연결하지 못하면 후보만 보여주며 자동 설치는 진행하지 않습니다.
 
+로컬 판단의 `confidence_kind: heuristic`과 0/1 점수는 단어 규칙의 결과이며 보정된 확률이 아닙니다. 설치·연결 거절은 원격 추천에도 우선합니다. 제공된 예시 설명과 외부 자료 조회를 구분하고, 티켓 제목만 붙여 넣은 조회 요청은 자료가 전부 제공된 것으로 간주하지 않습니다. 다중 스킬 패키지는 관련 하위 스킬 하나와 공통 루트 지침을 전달합니다. 관련 후보가 불분명하면 정적 전달을 중단합니다. 지침은 파일당 30,000바이트, 합계 60,000바이트로 제한합니다.
+
+## 세션 요약과 정리
+
+작업의 마지막 능력 사용 뒤 `release_capability_session`을 호출하면 권한을 해제하고 최종 답변에 넣을 `summary_markdown`을 반환합니다. 설치와 실제 사용, 권한 종료와 캐시 삭제를 구분합니다. 다음은 검증용 세션의 표시 예입니다.
+
+| 능력 | 종류 | 준비 | 사용 결과 | 세션 권한 | 캐시 |
+| --- | --- | --- | --- | --- | --- |
+| 회의록 지침 | 스킬 | 새로 설치 | 지침 전달 · 결과 미확인 | 해제 완료 | 보관 |
+| 노트 조회 | 플러그인 | 캐시 재사용 | 도구 호출 1회 | 해제 완료 | 보관 |
+
+`capability_session_summary` 또는 CLI `session-report --session <ID> [--format json]`으로 같은 기록을 조회합니다. 새 세션은 캐시 재사용으로 표시하고, 같은 세션의 반복 활성화는 한 행으로 집계합니다. 실제 도구 호출과 에이전트가 보고한 성공·실패는 구분하며 정적 지침 전달만으로 성공을 추정하지 않습니다. 설치·연결 실패도 사용 불가나 검토 필요로 남습니다. 사용 가능한 지침이나 승인된 도구가 없으면 `unavailable`을 반환하고 해당 권한을 취소합니다. 일부만 준비되면 `partially_activated`로 반환합니다.
+
+요약은 `<DATA_DIR>/session-summaries/<세션 ID의 해시>/summary.json`과 `summary.md`에 저장합니다. 패키지 이름·종류·버전과 준비 기록을 새 테이블에 보관하므로 카탈로그가 사라져도 조회할 수 있습니다. 이전 버전의 활성 기록은 출처를 추정하지 않고 `이전 기록 없음`으로 표시합니다. 네이티브 플러그인 관리자를 통해 따로 설치한 항목은 관찰 범위에 포함되지 않습니다.
+
+SessionEnd 훅은 카탈로그 탐색이나 다운로드 없이 권한을 해제하고 같은 보고서를 저장합니다. 최종 답변 표시는 스킬 안내와 명시적 release 호출을 통해 이루어집니다. Codex의 SessionEnd는 보관·삭제·앱 종료·장시간 비활성 등에서 실행되고 단순 채팅 전환에는 실행되지 않습니다. 종료 출력은 최종 답변을 추가하는 수단이 아니며 Claude도 해당 훅의 출력을 무시합니다. [Codex 훅 문서](https://learn.chatgpt.com/docs/hooks), [Claude 훅 문서](https://code.claude.com/docs/en/hooks).
+
+시작·프롬프트 훅이 전달하는 `storage_id`를 MCP 호출의 `expected_storage_id`로 넘기면 저장소 불일치 시 설치·호출을 거부합니다. CLI에서는 전역 옵션 `--expected-storage-id`를 사용합니다. `capability_runtime_status` 또는 `status --session <ID>`는 실제 저장소 ID, 플랫폼, 버전, 세션 연결 여부, 최근 훅 오류를 반환합니다. 오류 로그 `hook-errors.jsonl`에는 오류 종류와 이벤트 메타데이터만 남고 요청 원문·예외 메시지·작업 경로는 없습니다. Codex의 Claude 호환 환경 변수가 있어도 Codex 플랫폼으로 기록합니다.
+
 ## 판단 검증
 
 `resolve_capability`은 선택한 후보뿐 아니라 **선택하지 않은 판단**도 기록하고 `decision_id`를 반환합니다. `search_capabilities`는 `session_id`를 함께 주면 판단을 기록합니다. 기록에는 판단기·모델, 후보 점수, 선택 결과, 필요성 확률·선택 신뢰도, 활성화 성공 여부가 포함됩니다.
 
 0.1.7부터 Codex·Claude 모두 같은 `capability_events` 형식으로 요청 관찰, 탐색, 지침 전달, 게이트웨이 도구 호출, 명시적 사용 결과, 정답 라벨, 세션 해제를 기록합니다. 각 이벤트에는 플랫폼·플러그인 버전·세션/판단 ID·상태가 있고 요청 원문과 도구 인수는 없습니다. 기존 DB에 테이블을 추가하며 이전 사용을 이벤트로 추정해 채우지는 않습니다. 두 플랫폼의 DB는 별개입니다. `python3 -m capability_manager.cli --data-dir <PLUGIN_DATA> event-report --days 30`으로 집계를, `events --session <세션 ID>`로 경로를 확인합니다. 관리자를 거치지 않은 네이티브 플러그인 사용이나 최종 답변의 실제 품질은 자동으로 관찰하지 않습니다.
+
+0.1.8의 집계는 이벤트 수 외에 전체·이벤트별 고유 세션 수, 기록된 단계 지연의 표본 수와 평균을 반환합니다. 반복 호출을 사용자 수로 해석하지 않습니다. `other` 정답의 보류는 올바른 후보 선택으로 세며, 목록에 있는 능력의 누락과 분리합니다. 필요성 판단 정밀도·재현율은 후보 선택 정확도와 별도로 집계합니다. 이 수치만으로 답변 품질이나 시간 절감 효과를 입증할 수는 없습니다.
 
 UserPromptSubmit 훅은 매 사용자 요청마다 **로컬 단어 매칭만** 실행해, 에이전트가 탐색을 건너뛴 경우까지 `prompt-observer` 판단으로 기록합니다. 요청 원문은 저장하거나 원격 결정 API로 보내지 않고 해시만 기록합니다. 명시적인 추가 능력 요청 또는 프로젝트 전용 작업에 분명한 후보가 있는 경우에만 짧은 후보 힌트를 모델에 전달합니다. 탐색 도구가 호출되면 같은 `turn_id`의 관찰 상태를 `searched`로 바꿉니다. 판단 보고서의 `prompt_observations`는 전체·탐색·미탐색 건수와 명시적으로 라벨링된 누락 건수를 보여줍니다. 라벨이 없는 미탐색 건수는 오판으로 간주하지 않습니다.
 
@@ -76,5 +100,5 @@ Jev·Kev는 `python3 -m capability_manager.shadow --cases evals/cases.json`으�
 
 읽기 도구는 정책의 이름 허용 목록과 MCP 도구의 `readOnlyHint: true`가 모두 있어야 호출됩니다. 쓰기 도구는 별도 쓰기 허용 목록과 `allow_external_write`가 필요합니다. 도구 제공자의 주석 자체는 신뢰 증명이 아니므로 실제 외부 변경에는 별도의 사용자 승인 정책을 유지해야 합니다.
 
-세션 종료 훅은 세션 사용 권한을 해제하고 다운로드 캐시는 보존합니다. 이는 Claude의 네이티브 플러그인을 설치하거나 제거하는 동작이 아닙니다. `installed_plugins.json`에는 관리자 플러그인만 등록되며, `~/.claude/plugins/cache`에 남은 다른 패키지 폴더는 Claude가 관리하는 캐시일 수 있습니다. 게이트웨이 프로세스에 남은 MCP 연결은 그 프로세스가 종료될 때 닫힙니다. 훅 실행 전 신뢰 검토가 필요하며, 갑작스러운 프로세스 종료에 대비해 활성 기록에는 24시간 만료 시간이 있습니다. 같은 맥락에서 서로 다른 세션 세 번이 30일 내 성공하면 세션 시작 시 해당 패키지를 미리 준비합니다.
+세션 종료 훅은 세션 사용 권한을 해제하고 다운로드 캐시는 보존합니다. 이는 Claude의 네이티브 플러그인을 설치하거나 제거하는 동작이 아닙니다. `installed_plugins.json`에는 관리자 플러그인만 등록되며, `~/.claude/plugins/cache`에 남은 다른 패키지 폴더는 Claude가 관리하는 캐시일 수 있습니다. 명시적 release는 게이트웨이 연결을 닫으며 종료 오류가 나도 권한을 해제하고 오류를 보고서에 남깁니다. 다른 프로세스로 실행되는 종료 훅은 권한을 취소하고 게이트웨이 연결은 그 프로세스가 종료될 때 닫힙니다. 훅 실행 전 신뢰 검토가 필요하며, 갑작스러운 프로세스 종료에 대비해 활성 기록에는 24시간 만료 시간이 있습니다. 같은 맥락에서 서로 다른 세션 세 번이 30일 내 성공하면 `prefetch <맥락>`으로 패키지를 미리 준비할 수 있습니다. 훅 제한 시간 안에 정리를 마치도록 시작·종료 훅에서는 다운로드하지 않습니다.
 세션 시작 훅은 프로젝트 작업 경로의 **해시**를 세션 ID에 연결합니다. 모델이 도구에 전달하는 짧은 작업 맥락은 후보 선택에 쓰고, 예열·사용 기록에는 훅의 안정적인 프로젝트 키를 사용합니다. 훅이 실행되지 않으면 도구 인자의 맥락을 대신 쓰며 결과에 `context_source: argument`로 표시됩니다.

@@ -99,15 +99,43 @@ TOOLS = [
         "annotations": {"readOnlyHint": True},
     },
     {
+        "name": "capability_session_summary",
+        "description": "Show capabilities prepared through this manager in a session, distinguishing new installation, cache reuse, actual tool calls or reported results, temporary access, and cache retention. Native plugin installation outside this manager is not observed.",
+        "inputSchema": {"type": "object", "properties": {"session_id": {"type": "string"}},
+                        "required": ["session_id"], "additionalProperties": False},
+        "annotations": {"readOnlyHint": True},
+    },
+    {
+        "name": "capability_runtime_status",
+        "description": "Diagnose hook and MCP storage alignment using storage_id, platform, version, session binding and content-free hook error metadata. Compare storage_id with the hook's value.",
+        "inputSchema": {"type": "object", "properties": {"session_id": {"type": "string"}},
+                        "additionalProperties": False},
+        "annotations": {"readOnlyHint": True},
+    },
+    {
         "name": "release_capability_session",
-        "description": "Revoke temporary capabilities for a completed session while retaining cached packages.",
+        "description": "After the last capability use, revoke this session's temporary permissions and return summary_markdown for the final answer. Cached packages remain available for later tasks. SessionEnd repeats cleanup as a fallback and saves the receipt.",
         "inputSchema": {"type": "object", "properties": {"session_id": {"type": "string"}},
                         "required": ["session_id"], "additionalProperties": False},
     },
 ]
 
+for tool in TOOLS:
+    properties = tool["inputSchema"]["properties"]
+    if "session_id" in properties:
+        properties["session_id"].update({"minLength": 1, "maxLength": 200})
+    if tool["name"] != "capability_runtime_status":
+        properties["expected_storage_id"] = {
+            "type": "string", "pattern": "^[a-f0-9]{24}$",
+            "description": "storage_id supplied by the session hook; rejects actions in a different state store."}
+
 
 def _dispatch(manager: CapabilityManager, name: str, args: Dict[str, Any]) -> Any:
+    if name == "capability_runtime_status":
+        return manager.runtime_status(args.get("session_id"))
+    manager.check_storage(args.get("expected_storage_id"))
+    if name == "capability_session_summary":
+        return manager.session_summary(args["session_id"])
     if name == "resolve_static_skill":
         return manager.resolve_static(args["task"], args["session_id"],
                                       args.get("context", ""), args.get("turn_id"))
@@ -181,7 +209,11 @@ def main() -> None:
             sys.stdout.flush()
     finally:
         for key in list(manager.connections):
-            manager.connections.pop(key).close()
+            try:
+                manager.connections.pop(key).close()
+            except Exception as exc:
+                manager.store.add_event(key[0], "connection_cleanup", "error",
+                                        capability_id=key[1], error_type=type(exc).__name__)
 
 
 if __name__ == "__main__":
