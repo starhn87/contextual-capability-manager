@@ -1,0 +1,20 @@
+{
+  "name": "contextual-capabilities",
+  "interface": {
+    "displayName": "Contextual Capabilities"
+  },
+  "plugins": [
+    {
+      "name": "contextual-capability-manager",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
