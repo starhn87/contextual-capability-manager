@@ -21,6 +21,16 @@ python3 -m capability_manager.cli --data-dir /private/tmp/capability-manager-dem
 
 시험 환경의 Codex CLI `0.158.0-alpha.2`와 `0.159.0`에서는 패키지에 포함된 훅이 목록에 표시되지 않았습니다. 검증 과정에서 `~/.codex/hooks.json`에 세 사용자 훅을 등록하고 플러그인의 `PLUGIN_DATA` 경로를 동일하게 지정했습니다. 최초 조회에서는 `untrusted`였고, 사용자가 `/hooks`에서 처리한 뒤 재조회했을 때 세 훅 모두 `enabled=true`, `trustStatus=trusted`였습니다. 사용자 훅 등록은 플러그인 설치만으로 자동 생성되지 않으며 패키지 훅 발견과 훅 신뢰는 별개 문제입니다. 훅의 모델용 안내에는 작업 경로와 사용자 요청 원문을 포함하지 않습니다.
 
+**Codex에서 자동 세션 연결·요청 관찰·종료 정리를 사용하려면, 설치 후 한 번 `/hooks`에서 훅을 신뢰 처리해야 합니다.** 승인된 로컬·기존 캐시의 정적 지침 조회와 일반 답변의 0개 요약은 이 설정 없이 사용할 수 있습니다.
+
+1. 터미널에서 `codex`를 실행한 뒤 대화 입력창에 `/hooks`를 입력합니다. `/hooks`는 Codex 안에서 사용하는 대화형 명령입니다.
+2. 이 플러그인의 `SessionStart`, `UserPromptSubmit`, `SessionEnd` 세 훅을 각각 선택해 실행 명령과 경로를 검토하고 **신뢰 처리**합니다. 세 훅이 모두 **활성 상태**인지도 확인합니다.
+3. 앱·CLI를 다시 시작하고 새 세션을 엽니다.
+
+한 번 신뢰한 훅은 **정의가 같으면 매 세션 다시 신뢰할 필요가 없습니다.** 업데이트로 실행 명령·경로 등 훅 정의가 변경되면 `/hooks`에서 다시 검토·신뢰합니다. 현재 검증한 Codex CLI `0.159.0`에는 세 훅을 한꺼번에 영구 신뢰 등록하는 비대화형 CLI 명령이 없습니다. [공식 훅 신뢰 안내](https://learn.chatgpt.com/docs/hooks).
+
+`/hooks` 목록에 세 훅이 없으면 신뢰 처리 전에 훅 등록이 필요합니다. 위에서 확인한 CLI 버전처럼 패키지 훅을 발견하지 못하는 환경에서는 `~/.codex/hooks.json`에 사용자 훅을 등록해야 합니다. 각 명령은 설치된 플러그인의 `hooks/session_start.py`, `hooks/user_prompt_submit.py`, `hooks/session_end.py`를 실행하고, `CAPMGR_PLATFORM=codex`와 MCP의 `PLUGIN_DATA`와 같은 `CAPMGR_DATA_DIR`를 지정해야 합니다. 등록 후 `/hooks`를 다시 열어 신뢰·활성 상태를 확인하세요. [설치 흐름과 발견 문제](evals/codex-installation-friction-2026-10-04.md).
+
 Claude Code용 `.claude-plugin/plugin.json`, `.mcp.json`, 세션 훅도 포함합니다. 로컬 검증은 `claude --plugin-dir <이 저장소의 절대 경로>`로 시작할 수 있습니다. 사용자 범위 설치는 비공개 저장소에 접근 가능한 계정에서 `claude plugin marketplace add starhn87/contextual-capability-manager`, `CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1 claude plugin install contextual-capability-manager@contextual-capabilities`를 사용합니다. 새 세션에서 `/mcp`와 `/plugin`으로 로딩 상태를 확인하세요. Claude 훅에는 Codex의 `turn_id`가 없으므로 제출 때마다 ID를 생성해 판단 기록과 도구 호출을 연결합니다.
 
 Claude Code `2.1.282`의 설치본 0.1.9는 추가 능력이 없는 요청의 자동 0개 표시와, 해당 검증 실행에 도구를 좁게 허용한 스킬 적용·사용 결과 기록·권한 해제·최종 답변 요약표를 확인했습니다. [0.1.9 실제 대화 검증 보고서](evals/live-claude-2026-10-04-0.1.9.md)에 자동 표시와 도구 승인 조건, 검증 중 MCP 실패 캐시와 공식 재연결 후 복구를 구분해 기록했습니다. [0.1.8 검증 기록](evals/live-claude-2026-10-04-0.1.8.md)도 보존합니다.
