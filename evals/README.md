@@ -26,6 +26,8 @@ python3 -m unittest discover -s tests -v
 
 0.1.10의 훅 없는 Codex 정적 지침 조회와 일반 답변의 0개 표시, Claude 기존 경로의 호환성은 [codex-hook-free-2026-10-04-0.1.10.md](codex-hook-free-2026-10-04-0.1.10.md)에 있습니다. native CLI에 소스 MCP·스킬을 임시 제공한 검증이며 설치본 업데이트 검증과 구분합니다. 읽기 호출은 준비·권한·DB 기록을 만들지 않으므로 설치·활성화 성공률로 집계하지 않습니다.
 
+양쪽 설치본을 0.1.11로 업데이트한 후 새 세션 5건의 결과는 [native-deployment-2026-10-04-0.1.11.md](native-deployment-2026-10-04-0.1.11.md)에 있습니다. Codex의 기존 훅 연결을 능력 활성화로 해석한 불필요한 해제를 수정했습니다. 훅 유무에 따른 일반 답변, 기본 로컬 지침 조회표, Claude의 준비·권한 해제표와 설치·정리 내역을 기록했습니다.
+
 Codex의 훅 신뢰 자동화 지원 범위와 설치만으로 동작하기 위한 구조 개선안은 [codex-installation-friction-2026-10-04.md](codex-installation-friction-2026-10-04.md)에 있습니다. 정적 지침 조회는 0.1.10에서 훅 의존성을 제거했지만 관리자 세션 핸들·게이트웨이 소유 권한 정리는 후속 설계로 남아 있습니다.
 
 보고서의 `need_precision`과 `need_recall`은 능력 필요 여부를, `known_capability_accuracy`는 카탈로그에 있는 정답 능력을 실제로 선택했는지를 봅니다. `false_activations`는 `none` 사례에서 선택한 횟수, `missed_capabilities`는 존재하는 정답 후보를 놓친 횟수입니다. `other` 사례는 필요성 감지와 잘못된 자동 선택을 별도 집계합니다. 판단 임곗값은 사례와 실제 라벨이 쌓인 뒤 조정합니다.
