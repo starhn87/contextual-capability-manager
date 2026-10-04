@@ -23,8 +23,12 @@ def main():
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart",
             "additionalContext": "Capability manager session_id: " + session_id +
             ". Capability manager storage_id: " + storage_id(directory) +
-            ". Pass session_id and expected_storage_id to manager calls. After finishing capability use, call "
-            "release_capability_session and show its summary_markdown in the final answer."}}))
+            ". Pass session_id and expected_storage_id to manager calls. Always show a compact manager "
+            "receipt in the final answer for a completed request, including when no capability was used. "
+            "Use a verified empty receipt from UserPromptSubmit without extra tool calls when nothing "
+            "was prepared afterward. After finishing capability use, call release_capability_session "
+            "and show its summary_markdown. If no verified receipt is available, report the status as "
+            "unverified instead of assuming zero installations or successful cleanup."}}))
     except Exception as exc:
         record_hook_failure("SessionStart", session_id, exc, Path(__file__).resolve().parent.parent)
         print(json.dumps({"systemMessage": "Capability manager SessionStart failed (" +

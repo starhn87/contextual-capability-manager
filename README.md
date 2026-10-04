@@ -17,7 +17,7 @@ python3 -m capability_manager.cli --data-dir /private/tmp/capability-manager-dem
   session-report --session demo-1
 ```
 
-로컬 Codex 마켓플레이스 패키지를 만들려면 `python3 scripts/build_marketplace.py`를 실행합니다. 생성된 `dist/marketplace`에는 설치 가능한 플러그인과 마켓플레이스 목록이 들어 있습니다. 검토 후 `codex plugin marketplace add <절대 경로의 dist/marketplace>`와 `codex plugin add contextual-capability-manager@local-capabilities`로 설치할 수 있습니다. MCP와 포함 스킬은 설치 후 새 채팅에서 로드됩니다. **현재 0.1.8의 자동 세션 연결·전체 프롬프트 관찰·종료 훅 정리는 추가 훅 검토·신뢰에 의존합니다.** 설치만으로 이 동작까지 완료되지 않으며, 핵심 기능을 MCP·스킬에서 초기화하고 훅을 선택 기능으로 만드는 방향을 [설치 흐름 조사 보고서](evals/codex-installation-friction-2026-10-04.md)에 정리했습니다. 이 구조 변경은 아직 구현되지 않았습니다. 관리자 플러그인은 작업 중 필요한 *다른* 능력을 MCP 게이트웨이를 통해 같은 채팅에 적용합니다.
+로컬 Codex 마켓플레이스 패키지를 만들려면 `python3 scripts/build_marketplace.py`를 실행합니다. 생성된 `dist/marketplace`에는 설치 가능한 플러그인과 마켓플레이스 목록이 들어 있습니다. 검토 후 `codex plugin marketplace add <절대 경로의 dist/marketplace>`와 `codex plugin add contextual-capability-manager@local-capabilities`로 설치할 수 있습니다. MCP와 포함 스킬은 설치 후 새 채팅에서 로드됩니다. **현재 구현의 자동 세션 연결·전체 프롬프트 관찰·종료 훅 정리는 추가 훅 검토·신뢰에 의존합니다.** 설치만으로 이 동작까지 완료되지 않으며, 핵심 기능을 MCP·스킬에서 초기화하고 훅을 선택 기능으로 만드는 방향을 [설치 흐름 조사 보고서](evals/codex-installation-friction-2026-10-04.md)에 정리했습니다. 이 구조 변경은 아직 구현되지 않았습니다. 관리자 플러그인은 작업 중 필요한 *다른* 능력을 MCP 게이트웨이를 통해 같은 채팅에 적용합니다.
 
 시험 환경의 Codex CLI `0.158.0-alpha.2`와 `0.159.0`에서는 패키지에 포함된 훅이 목록에 표시되지 않았습니다. 검증 과정에서 `~/.codex/hooks.json`에 세 사용자 훅을 등록하고 플러그인의 `PLUGIN_DATA` 경로를 동일하게 지정했습니다. 최초 조회에서는 `untrusted`였고, 사용자가 `/hooks`에서 처리한 뒤 재조회했을 때 세 훅 모두 `enabled=true`, `trustStatus=trusted`였습니다. 사용자 훅 등록은 플러그인 설치만으로 자동 생성되지 않으며 패키지 훅 발견과 훅 신뢰는 별개 문제입니다. 훅의 모델용 안내에는 작업 경로와 사용자 요청 원문을 포함하지 않습니다.
 
@@ -61,6 +61,8 @@ python3 -m capability_manager.cli catalog-add \
 ## 세션 요약과 정리
 
 작업의 마지막 능력 사용 뒤 `release_capability_session`을 호출하면 권한을 해제하고 최종 답변에 넣을 `summary_markdown`을 반환합니다. 설치와 실제 사용, 권한 종료와 캐시 삭제를 구분합니다. 다음은 검증용 세션의 표시 예입니다.
+
+0.1.9부터 추가 능력을 사용하지 않은 요청도 답변 끝에 `추가 설치 0 · 캐시 재사용 0 · 권한 해제 0 · 활성 권한 0`을 표시하도록 안내합니다. 프롬프트 훅이 확인한 빈 세션 기록을 전달하므로, 이후 준비·재활성화 호출이 없으면 0개 표시를 위해 관리자 도구를 호출하거나 추가 승인을 받을 필요가 없습니다. 준비를 시도했다면 마지막 사용 뒤 release의 최신 요약을 사용합니다. 기록 조회에 실패하면 0개로 추정하지 않고 확인 불가로 표시합니다. 이 수치는 관리자 기록 범위이며 컴퓨터에 설치된 모든 네이티브 스킬·플러그인의 개수가 아닙니다.
 
 | 능력 | 종류 | 준비 | 사용 결과 | 세션 권한 | 캐시 |
 | --- | --- | --- | --- | --- | --- |

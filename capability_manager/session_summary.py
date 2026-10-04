@@ -19,9 +19,16 @@ def _cell(value: str) -> str:
 
 
 def markdown(summary: Dict[str, Any]) -> str:
+    counts = summary['counts']
+    totals = ('추가 설치 {new_packages} · 캐시 재사용 {cache_reused} · '
+              '권한 해제 {released} · 활성 권한 {active}').format(**counts)
     if not summary["capabilities"]:
-        return "이 세션에서 관리자를 통해 추가한 능력: 없음."
-    lines = ["**세션 능력 요약**", "", "| 능력 | 종류 | 준비 | 사용 결과 | 세션 권한 | 캐시 |",
+        text = '이 세션에서 관리자를 통해 추가한 능력: 없음. ' + totals + '.'
+        if summary.get('cleanup_errors'):
+            text += ' 일부 연결 종료를 확인하지 못했습니다.'
+        return text
+    lines = ["**세션 능력 요약**", "", totals, "",
+             "| 능력 | 종류 | 준비 | 사용 결과 | 세션 권한 | 캐시 |",
              "| --- | --- | --- | --- | --- | --- |"]
     kinds = {"skill": "스킬", "plugin": "플러그인", "connector": "커넥터", "unknown": "기록 없음"}
     packages = {"installed": "새로 설치", "cache_reused": "캐시 재사용",

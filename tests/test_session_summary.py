@@ -39,6 +39,45 @@ class SessionSummaryTests(unittest.TestCase):
                               input=json.dumps(event), capture_output=True, text=True,
                               env=env or self.environment(), cwd=str(ROOT), timeout=5)
 
+    def test_prompt_provides_verified_zero_receipt_without_preparing_a_package(self):
+        self.skill()
+        start = self.hook('session_start', {'session_id': 'empty', 'cwd': '/private/project'})
+        self.assertEqual(start.returncode, 0, start.stderr)
+        submitted = self.hook('user_prompt_submit', {
+            'session_id': 'empty', 'turn_id': 'routine', 'prompt': '12와 18의 최대공약수는?',
+            'cwd': '/private/project'})
+        self.assertEqual(submitted.returncode, 0, submitted.stderr)
+        manager = self.fixture.manager()
+        summary = manager.session_summary('empty')
+        self.assertEqual(summary['counts'], {
+            'capabilities': 0, 'new_packages': 0, 'cache_reused': 0, 'active': 0, 'released': 0})
+        guidance = json.loads(submitted.stdout)['hookSpecificOutput']['additionalContext']
+        self.assertIn(summary['summary_markdown'], guidance)
+        self.assertIn('추가 설치 0', summary['summary_markdown'])
+        self.assertIn('권한 해제 0', summary['summary_markdown'])
+        self.assertFalse(summary['release_completed'])
+        self.assertEqual(list((manager.data_dir / 'cache').glob('*')), [])
+        ended = self.hook('session_end', {'session_id': 'empty'})
+        self.assertEqual(ended.returncode, 0, ended.stderr)
+        saved = json.loads(next((manager.data_dir / 'session-summaries').glob('*/summary.json')).read_text())
+        self.assertTrue(saved['release_completed'])
+        self.assertEqual(saved['counts'], summary['counts'])
+        self.assertEqual(saved['summary_markdown'], summary['summary_markdown'])
+
+    def test_prompt_never_reuses_zero_receipt_after_preparation(self):
+        self.skill()
+        manager = self.fixture.manager()
+        empty_receipt = manager.session_summary('chat')['summary_markdown']
+        manager.activate('notes-skill', 'chat')
+        submitted = self.hook('user_prompt_submit', {
+            'session_id': 'chat', 'turn_id': 'later', 'prompt': '12와 18의 최대공약수는?'})
+        self.assertEqual(submitted.returncode, 0, submitted.stderr)
+        guidance = json.loads(submitted.stdout)['hookSpecificOutput']['additionalContext']
+        self.assertNotIn(empty_receipt, guidance)
+        summary = manager.session_summary('chat')
+        self.assertEqual(summary['counts']['active'], 1)
+        self.assertEqual(summary['counts']['new_packages'], 1)
+
     def test_installation_cache_reuse_and_idempotent_release_are_distinct(self):
         self.skill()
         manager = self.fixture.manager()
