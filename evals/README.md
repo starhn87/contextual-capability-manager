@@ -20,6 +20,8 @@ python3 -m unittest discover -s tests -v
 
 0.1.8의 설치된 Claude Code 플러그인을 새 CLI 세션에서 확인한 결과는 [live-claude-2026-10-04-0.1.8.md](live-claude-2026-10-04-0.1.8.md)에 있습니다. 재로그인 후 해당 실행에 검증 도구를 좁게 허용한 조건에서 스킬 적용·사용 결과 기록·권한 해제·최종 답변 요약표까지 확인했습니다. 기본 도구 승인까지 자동 처리된다는 증거는 아닙니다.
 
+0.1.9의 자동 0개 영수증과 기존 스킬 사용 흐름의 실제 설치본 결과는 [live-claude-2026-10-04-0.1.9.md](live-claude-2026-10-04-0.1.9.md)에 있습니다. 빈 요청은 추가 도구 호출 없이 표시됐고, 스킬 사용은 해당 실행에만 좁게 도구를 허용해 확인했습니다. 검증 중 MCP 연결 실패와 실패 캐시, 공식 SDK 재연결 후 새 세션 복구도 기록했습니다.
+
 Codex의 훅 신뢰 자동화 지원 범위와 설치만으로 동작하기 위한 구조 개선안은 [codex-installation-friction-2026-10-04.md](codex-installation-friction-2026-10-04.md)에 있습니다. 훅을 핵심 경로에서 분리하는 개선안은 아직 구현되지 않았습니다.
 
 보고서의 `need_precision`과 `need_recall`은 능력 필요 여부를, `known_capability_accuracy`는 카탈로그에 있는 정답 능력을 실제로 선택했는지를 봅니다. `false_activations`는 `none` 사례에서 선택한 횟수, `missed_capabilities`는 존재하는 정답 후보를 놓친 횟수입니다. `other` 사례는 필요성 감지와 잘못된 자동 선택을 별도 집계합니다. 판단 임곗값은 사례와 실제 라벨이 쌓인 뒤 조정합니다.

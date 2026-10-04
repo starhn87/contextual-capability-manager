@@ -23,7 +23,7 @@ python3 -m capability_manager.cli --data-dir /private/tmp/capability-manager-dem
 
 Claude Code용 `.claude-plugin/plugin.json`, `.mcp.json`, 세션 훅도 포함합니다. 로컬 검증은 `claude --plugin-dir <이 저장소의 절대 경로>`로 시작할 수 있습니다. 사용자 범위 설치는 비공개 저장소에 접근 가능한 계정에서 `claude plugin marketplace add starhn87/contextual-capability-manager`, `CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1 claude plugin install contextual-capability-manager@contextual-capabilities`를 사용합니다. 새 세션에서 `/mcp`와 `/plugin`으로 로딩 상태를 확인하세요. Claude 훅에는 Codex의 `turn_id`가 없으므로 제출 때마다 ID를 생성해 판단 기록과 도구 호출을 연결합니다.
 
-Claude Code `2.1.282`의 설치본 0.1.8은 재로그인 후 해당 검증 실행에 도구를 좁게 허용한 조건에서 스킬 적용·사용 결과 기록·권한 해제·최종 답변 요약표까지 확인했습니다. [실제 대화 검증 보고서](evals/live-claude-2026-10-04-0.1.8.md)에 자동 로딩과 도구 승인 조건을 구분해 기록했습니다.
+Claude Code `2.1.282`의 설치본 0.1.9는 추가 능력이 없는 요청의 자동 0개 표시와, 해당 검증 실행에 도구를 좁게 허용한 스킬 적용·사용 결과 기록·권한 해제·최종 답변 요약표를 확인했습니다. [0.1.9 실제 대화 검증 보고서](evals/live-claude-2026-10-04-0.1.9.md)에 자동 표시와 도구 승인 조건, 검증 중 MCP 실패 캐시와 공식 재연결 후 복구를 구분해 기록했습니다. [0.1.8 검증 기록](evals/live-claude-2026-10-04-0.1.8.md)도 보존합니다.
 
 Claude Code에서는 별도 목록 등록 없이 **이미 등록된 Claude 마켓플레이스**를 매 세션 검색합니다. 미설치 로컬 지침형 플러그인과 커밋 SHA가 고정된 HTTPS Git 플러그인을 후보로 읽고, 실제 필요할 때만 정적 스킬 파일을 세션 캐시에 복사해 같은 대화에 전달합니다. Git 후보에 MCP 서버나 훅이 있으면 자동 실행하지 않고 검토 대상으로 남깁니다. 이미 설치된 플러그인은 Claude가 직접 사용할 수 있으므로 중복 후보에서 제외합니다. 이 검색은 Claude 마켓플레이스 등록 목록을 사용하며, 마켓플레이스 자체를 새로 구독하거나 OAuth 계정을 연결하지는 않습니다. 판단 결과는 로컬에 기록합니다.
 
