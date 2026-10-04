@@ -24,7 +24,9 @@ python3 -m unittest discover -s tests -v
 
 두 런타임의 설치본을 각각 새 CLI 세션으로 재검증한 결과는 [live-both-2026-10-04.md](live-both-2026-10-04.md)에 있습니다. Claude 0.1.9의 두 흐름은 확인했고, 현재 Codex 0.1.8의 일반 요청 표시 누락과 비대화형 도구 승인 차단도 재현했습니다. 조건이 다른 비교이며 승인 거부·로컬 예제 파일 읽기를 관리자 설치 성공으로 세지 않습니다.
 
-Codex의 훅 신뢰 자동화 지원 범위와 설치만으로 동작하기 위한 구조 개선안은 [codex-installation-friction-2026-10-04.md](codex-installation-friction-2026-10-04.md)에 있습니다. 훅을 핵심 경로에서 분리하는 개선안은 아직 구현되지 않았습니다.
+0.1.10의 훅 없는 Codex 정적 지침 조회와 일반 답변의 0개 표시, Claude 기존 경로의 호환성은 [codex-hook-free-2026-10-04-0.1.10.md](codex-hook-free-2026-10-04-0.1.10.md)에 있습니다. native CLI에 소스 MCP·스킬을 임시 제공한 검증이며 설치본 업데이트 검증과 구분합니다. 읽기 호출은 준비·권한·DB 기록을 만들지 않으므로 설치·활성화 성공률로 집계하지 않습니다.
+
+Codex의 훅 신뢰 자동화 지원 범위와 설치만으로 동작하기 위한 구조 개선안은 [codex-installation-friction-2026-10-04.md](codex-installation-friction-2026-10-04.md)에 있습니다. 정적 지침 조회는 0.1.10에서 훅 의존성을 제거했지만 관리자 세션 핸들·게이트웨이 소유 권한 정리는 후속 설계로 남아 있습니다.
 
 보고서의 `need_precision`과 `need_recall`은 능력 필요 여부를, `known_capability_accuracy`는 카탈로그에 있는 정답 능력을 실제로 선택했는지를 봅니다. `false_activations`는 `none` 사례에서 선택한 횟수, `missed_capabilities`는 존재하는 정답 후보를 놓친 횟수입니다. `other` 사례는 필요성 감지와 잘못된 자동 선택을 별도 집계합니다. 판단 임곗값은 사례와 실제 라벨이 쌓인 뒤 조정합니다.
 
@@ -49,6 +51,8 @@ python3 scripts/run_live_codex_eval.py --repeat 2
 | `현재 티켓 담당자를 조회해줘` | 기본 목록에 없으므로 임의의 능력 설치 없음 |
 
 각 시험에서 SessionStart의 프로젝트 키 연결, UserPromptSubmit의 관찰 기록, MCP 탐색·활성화, 사용 결과, 마지막 능력 사용 후 release의 요약, SessionEnd의 권한 해제를 확인합니다. 훅의 `storage_id`를 `expected_storage_id`로 전달해 같은 저장소인지 확인합니다. `record_capability_result`의 성공 값은 실제 작업 결과를 확인한 뒤에만 기록합니다. 플러그인·커넥터 시험은 읽기 도구의 주석과 정책 허용 목록, 인증 실패, 쓰기 거부까지 확인합니다. `unavailable`과 `partially_activated`를 정상 전달과 구분하고 캐시가 있다는 이유만으로 활성화를 성공 처리하지 않습니다.
+
+Codex의 훅 없는 정적 조회 시험은 별도로 봅니다. 기존 정책을 유지한 채 승인된 시험용 로컬 스킬과 독립 저장소를 제공하고, 훅을 해당 실행에만 끈 뒤 `read_static_skill`의 반환 지침·최종 답변을 확인합니다. 검증 마커는 사용자 프롬프트가 아니라 스킬 파일에만 넣습니다. 파일·DB·권한 변화가 없고 다운로드·준비·결과 기록·release를 호출하지 않았는지 확인합니다. 훅 관찰과 저장된 사용 기록은 이 경로의 성공 조건에 포함하지 않습니다.
 
 ## 3. 실사용 라벨과 수정
 

@@ -32,11 +32,22 @@ def check_static_skill(source: Path) -> None:
         raise ValueError("git source subdirectory does not exist")
     if any((source / marker).exists() for marker in ("hooks", ".mcp.json", "mcp.json")):
         raise PermissionError("remote plugin has executable components; review it before enabling")
-    for manifest in (source / "plugin.json", source / ".claude-plugin/plugin.json"):
+    for manifest in (source / "plugin.json", source / ".claude-plugin/plugin.json",
+                     source / ".codex-plugin/plugin.json"):
         if manifest.is_file():
             document = json.loads(manifest.read_text(encoding="utf-8"))
+            if not isinstance(document, dict):
+                raise ValueError("plugin manifest must be an object")
             if any(document.get(key) for key in ("hooks", "mcpServers", "lspServers")):
                 raise PermissionError("remote plugin declares executable components")
+            extensions = document.get("extensions") or {}
+            if not isinstance(extensions, dict):
+                raise ValueError("plugin extensions must be an object")
+            openai = extensions.get("com.openai") or {}
+            if not isinstance(openai, dict):
+                raise ValueError("OpenAI plugin extension must be an object")
+            if any(openai.get(key) for key in ("hooks", "mcpServers", "lspServers")):
+                raise PermissionError("plugin extension declares executable components")
     if not (source / "SKILL.md").is_file() and not any(
             (source / "skills").glob("*/SKILL.md")):
         raise ValueError("remote plugin has no skill instructions")
