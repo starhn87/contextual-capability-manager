@@ -24,7 +24,7 @@ python3 -m capability_manager.cli --data-dir /private/tmp/capability-manager-dem
 **Codex에서 자동 세션 연결·요청 관찰·종료 정리를 사용하려면, 설치 후 한 번 `/hooks`에서 훅을 신뢰 처리해야 합니다.** 승인된 로컬·기존 캐시의 정적 지침 조회와 일반 답변의 0개 요약은 이 설정 없이 사용할 수 있습니다.
 
 1. 터미널에서 `codex`를 실행한 뒤 대화 입력창에 `/hooks`를 입력합니다. `/hooks`는 Codex 안에서 사용하는 대화형 명령입니다.
-2. 이 플러그인의 `SessionStart`, `UserPromptSubmit`, `SessionEnd` 세 훅을 각각 선택해 실행 명령과 경로를 검토하고 **신뢰 처리**합니다. 세 훅이 모두 **활성 상태**인지도 확인합니다.
+2. 실행 경로에 `contextual-capability-manager`가 포함된 `SessionStart` (`hooks/session_start.py`), `UserPromptSubmit` (`hooks/user_prompt_submit.py`), `SessionEnd` (`hooks/session_end.py`)를 각각 선택해 실행 명령과 경로를 검토하고 **신뢰 처리**합니다. 세 훅이 모두 **활성 상태**인지도 확인합니다.
 3. 앱·CLI를 다시 시작하고 새 세션을 엽니다.
 
 한 번 신뢰한 훅은 **정의가 같으면 매 세션 다시 신뢰할 필요가 없습니다.** 업데이트로 실행 명령·경로 등 훅 정의가 변경되면 `/hooks`에서 다시 검토·신뢰합니다. 현재 검증한 Codex CLI `0.159.0`에는 세 훅을 한꺼번에 영구 신뢰 등록하는 비대화형 CLI 명령이 없습니다. [공식 훅 신뢰 안내](https://learn.chatgpt.com/docs/hooks).

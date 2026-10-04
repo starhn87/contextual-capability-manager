@@ -22,7 +22,15 @@ CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1 claude plugin install contextual-capability-ma
 
 설치 후 앱·CLI를 다시 시작하고 새 세션을 엽니다.
 
-Codex의 자동 요청 관찰·종료 정리를 사용하려면 `/hooks`에서 이 플러그인의 세 훅을 처음 한 번 신뢰·활성화합니다. 정적 지침 조회와 추가 능력 0개 요약은 훅 설정 없이 사용할 수 있습니다. [훅 설정 안내](docs/advanced.md#실행).
+Codex의 자동 세션 연결·요청 관찰·종료 정리를 사용하려면 `/hooks`를 열고, 실행 경로에 `contextual-capability-manager`가 포함된 아래 항목을 처음 한 번 **신뢰·활성화**합니다.
+
+| `/hooks` 이벤트 | 실행 파일 |
+| --- | --- |
+| `SessionStart` | `hooks/session_start.py` |
+| `UserPromptSubmit` | `hooks/user_prompt_submit.py` |
+| `SessionEnd` | `hooks/session_end.py` |
+
+정적 지침 조회와 추가 능력 0개 요약은 훅 설정 없이 사용할 수 있습니다. 목록에 위 항목이 없으면 [훅 등록·설정 안내](docs/advanced.md#실행)를 참고하세요.
 
 ## 사용
 
