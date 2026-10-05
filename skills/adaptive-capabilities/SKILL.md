@@ -1,6 +1,6 @@
 ---
 name: adaptive-capabilities
-description: Find and apply approved missing capabilities when a task requires project-specific instructions or connected resources, even when the user does not name a skill. At the end of completed requests, show a manager installation and access receipt, including zero additions.
+description: Use at the end of every completed request, including simple answers with zero capability additions, to show a manager installation and access receipt. Also resolve missing named team or project instructions before drafting, without requiring the user to name a skill.
 ---
 
 # Adaptive capabilities

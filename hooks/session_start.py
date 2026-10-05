@@ -26,8 +26,10 @@ def main():
             ". Pass session_id and expected_storage_id to manager calls. Always show a compact manager "
             "receipt in the final answer for a completed request, including when no capability was used. "
             "Use a verified empty receipt from UserPromptSubmit without extra tool calls when nothing "
-            "was prepared afterward. After finishing capability use, call release_capability_session "
-            "and show its summary_markdown. If no verified receipt is available, report the status as "
+            "was prepared afterward. Only after actual package preparation or access reactivation, "
+            "call release_capability_session and show its summary_markdown. Reading the installed "
+            "manager skill, catalog metadata, or Codex read_static_skill creates no session access "
+            "and does not require release. If no verified receipt is available, report the status as "
             "unverified instead of assuming zero installations or successful cleanup."}}))
     except Exception as exc:
         record_hook_failure("SessionStart", session_id, exc, Path(__file__).resolve().parent.parent)
