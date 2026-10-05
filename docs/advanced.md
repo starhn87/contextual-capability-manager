@@ -62,7 +62,7 @@ Claude Code에서는 별도 목록 등록 없이 **이미 등록된 Claude 마�
 
 `CAPMGR_INCLUDE_CODEX_CATALOG=0`, `CAPMGR_INCLUDE_CLAUDE_CATALOG=0`으로 해당 플랫폼 탐색을 끌 수 있습니다. `CAPMGR_SYNC_MARKETPLACES=0`은 원격 Git 갱신만 끄며 로컬 검색은 유지합니다. 명시적인 `CAPMGR_CATALOGS`나 생성자 카탈로그 인자를 사용한 격리 실행은 플랫폼 탐색을 기본으로 추가하지 않습니다. SSH Git·URL JSON·패키지 레지스트리 전체를 직접 동기화하는 기능은 포함하지 않으며, 호스트가 제공하는 native 목록의 발견 정보만 사용합니다. 새로운 계정 연결은 플랫폼의 인증 절차를 따릅니다.
 
-[0.1.12 검증 결과](../evals/catalog-refresh-2026-10-05-0.1.12.md). 참고: [OpenAI 공식 패키지·마켓플레이스 문서](https://developers.openai.com/plugins/build/plugins), [Claude 공식 마켓플레이스 문서](https://code.claude.com/docs/en/plugin-marketplaces).
+[0.1.12 소스 검증](../evals/catalog-refresh-2026-10-05-0.1.12.md) 이후 양쪽 설치본을 0.1.14로 업데이트하고 이름 없는 팀 양식 요청과 일반 답변의 요약을 새 CLI 세션에서 확인했다. 기존 신뢰 훅을 켠 Codex의 기본 비대화형 승인 정책에는 불필요한 해제 시도 차단이 남아 있다. [최신 설치본 검증·정리 결과](../evals/native-deployment-2026-10-05-0.1.14.md). 참고: [OpenAI 공식 패키지·마켓플레이스 문서](https://developers.openai.com/plugins/build/plugins), [Claude 공식 마켓플레이스 문서](https://code.claude.com/docs/en/plugin-marketplaces).
 
 ## 추가 출처 등록 (선택 사항)
 

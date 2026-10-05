@@ -54,4 +54,4 @@ Codex의 자동 세션 연결·요청 관찰·종료 정리를 사용하려면 `
 
 - [추가 출처 등록·상세 설정·로컬 개발](docs/advanced.md)
 - [판단 검증 절차](evals/README.md)
-- [Codex·Claude 설치본 검증 결과](evals/native-deployment-2026-10-04-0.1.11.md)
+- [Codex·Claude 설치본 검증 결과](evals/native-deployment-2026-10-05-0.1.14.md)
