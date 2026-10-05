@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from .catalog import Entry
-from .decision import lexical_decision
+from .decision import lexical_decision, lexical_rank
 from .installer import check_static_skill
 from .instructions import read_skills
 from .policy import Policy, within
@@ -41,6 +41,10 @@ def read_static_skill(catalog: Dict[str, Entry], policy: Policy, cache_dir: Path
             local[entry.id] = (entry, package, cached)
         except (OSError, ValueError, PermissionError) as exc:
             unavailable.append({"id": entry.id, "reason": type(exc).__name__})
+    if len(unavailable) > 8:
+        selected = {entry.id for entry, _ in lexical_rank(task + " " + context,
+                    [catalog[item["id"]] for item in unavailable])[:8]}
+        unavailable = [item for item in unavailable if item["id"] in selected]
     decision = lexical_decision(task, [item[0] for item in local.values()], context)
     result = {"status": "no_local_static_match", "decision": decision,
               "unavailable": unavailable, "scope": "read-only-call",

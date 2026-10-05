@@ -52,6 +52,8 @@ class Policy:
         )
 
     def check_entry(self, entry: Entry) -> None:
+        if entry.source["type"] == "native":
+            raise PermissionError("native plugin needs platform installation or account authentication")
         if entry.publisher not in self.publishers or entry.kind not in self.kinds:
             raise PermissionError("publisher or capability kind is outside the approved policy")
         if entry.permissions.get("execute") and not self.can_execute(entry.id):

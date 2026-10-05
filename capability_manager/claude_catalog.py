@@ -34,12 +34,17 @@ def _installed(root: Path) -> set:
 
 
 def _local_version(package: Path, listed: dict) -> str:
-    manifest = package / ".claude-plugin/plugin.json"
+    manifests = [package / relative for relative in
+                 (".claude-plugin/plugin.json", ".codex-plugin/plugin.json", "plugin.json")]
+    manifest = next((path for path in manifests if path.is_file()), manifests[0])
     try:
-        declared = json.loads(manifest.read_text(encoding="utf-8")).get("version", "0")
+        document = json.loads(manifest.read_text(encoding="utf-8"))
+        if not isinstance(document, dict):
+            raise ValueError("plugin manifest must be an object")
+        declared = document.get("version", "0")
     except (OSError, ValueError, TypeError):
         declared = listed.get("version") or "0"
-    files = [manifest, package / "SKILL.md"] + list((package / "skills").glob("*/SKILL.md"))
+    files = manifests + [package / "SKILL.md"] + list((package / "skills").glob("*/SKILL.md"))
     fingerprint = hashlib.sha256()
     for path in sorted(files):
         if path.is_file():
@@ -111,16 +116,38 @@ def _entry(item: dict, marketplace: str, catalog_path: Path) -> Optional[Entry]:
         return None
 
 
-def discover(root: Optional[Path] = None) -> Dict[str, Entry]:
+def registered_marketplaces(root=None):
+    root = (root or plugins_dir()).expanduser().resolve()
+    try:
+        document = json.loads((root / "known_marketplaces.json").read_text())
+    except (OSError, ValueError):
+        return []
+    if not isinstance(document, dict):
+        return []
+    return [{**item, "name": name} for name, item in document.items() if isinstance(item, dict)]
+
+
+def discover(root: Optional[Path] = None, snapshots=None) -> Dict[str, Entry]:
     root = (root or plugins_dir()).expanduser().resolve()
     installed = _installed(root)
     entries = {}
-    for catalog_path in sorted((root / "marketplaces").glob("*/.claude-plugin/marketplace.json")):
+    registrations = registered_marketplaces(root)
+    names = {item["name"] for item in registrations}
+    paths = {path.parent.parent.name: path for path in
+             (root / "marketplaces").glob("*/.claude-plugin/marketplace.json")
+             if not (root / "known_marketplaces.json").exists() or path.parent.parent.name in names}
+    for item in registrations:
+        location = item.get("installLocation")
+        if isinstance(location, str) and Path(location).is_absolute():
+            paths[item["name"]] = Path(location) / ".claude-plugin/marketplace.json"
+    for name, snapshot in (snapshots or {}).items():
+        paths[name] = snapshot / ".claude-plugin/marketplace.json"
+    for expected_name, catalog_path in sorted(paths.items()):
         try:
             document = json.loads(catalog_path.read_text(encoding="utf-8"))
             marketplace = document["name"]
             items = document["plugins"]
-            if not isinstance(marketplace, str) or not isinstance(items, list):
+            if marketplace != expected_name or not isinstance(items, list):
                 continue
         except (OSError, ValueError, KeyError, TypeError):
             continue

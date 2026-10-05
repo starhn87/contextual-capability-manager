@@ -1,13 +1,13 @@
 import hashlib
 import os
 import time
-from dataclasses import replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from urllib.parse import urlparse
 
-from .catalog import Entry, load_catalog
-from .decision import CAPABILITY_REJECTION, SUPPLIED_MATERIAL, DecisionRouter, lexical_decision
+from .catalog import Entry
+from .catalog_refresh import CatalogIndex
+from .decision import (CAPABILITY_REJECTION, SUPPLIED_MATERIAL, DecisionRouter,
+                       lexical_decision, lexical_rank)
 from .installer import Installer, check_static_skill
 from .instructions import read_skills
 from .mcp_bridge import connect, server_configs
@@ -39,74 +39,85 @@ def runtime_platform() -> str:
     return current_platform()
 
 
+class ActiveVersionChanged(PermissionError):
+    pass
+
+
 class CapabilityManager:
     def __init__(self, catalog_paths: Optional[List[Path]] = None,
                  policy_path: Optional[Path] = None, data_dir: Optional[Path] = None,
                  include_codex_catalog: Optional[bool] = None,
-                 include_claude_catalog: Optional[bool] = None):
+                 include_claude_catalog: Optional[bool] = None,
+                 defer_discovery: bool = False):
         self.data_dir = data_dir or default_data_dir()
         self.data_dir.mkdir(parents=True, exist_ok=True)
+        self._explicit_catalog_paths = catalog_paths
+        self._explicit_policy_path = policy_path
         configured = os.environ.get("CAPMGR_CATALOGS", "")
-        configured_root = default_config_dir()
+        self._configured_catalogs = configured
+        self._configured_root = default_config_dir()
+        self._forced_config_root = bool(os.environ.get("CAPMGR_CONFIG_DIR"))
+        self._configured_policy = os.environ.get("CAPMGR_POLICY")
+        self._include_claude = (
+            catalog_paths is None and not configured and
+            (os.environ.get("CAPMGR_INCLUDE_CLAUDE_CATALOG") == "1" or
+             (os.environ.get("CAPMGR_INCLUDE_CLAUDE_CATALOG") != "0" and runtime_platform() == "claude"))
+            if include_claude_catalog is None else include_claude_catalog)
+        self._include_codex = (
+            catalog_paths is None and not configured and
+            (os.environ.get("CAPMGR_INCLUDE_CODEX_CATALOG") == "1" or
+             (os.environ.get("CAPMGR_INCLUDE_CODEX_CATALOG") != "0" and runtime_platform() == "codex"))
+            if include_codex_catalog is None else include_codex_catalog)
+        self.index = CatalogIndex(self._catalog_configuration, self.data_dir,
+                                  codex=self._include_codex, claude=self._include_claude)
+        self.catalog, self.policy = self.index.refresh(local_only=defer_discovery)
+        self.installer = Installer(self.data_dir / "cache", self.policy)
+        self.store = Store(self.data_dir / "state.sqlite3", runtime_platform(), __version__)
+        self.router = DecisionRouter(self.policy)
+        self.connections = {}
+        self.tool_catalogs = {}
+        self.session_entries = {}
+
+    def _catalog_configuration(self):
+        configured = self._configured_catalogs
+        configured_root = self._configured_root
         data_catalog = self.data_dir / "catalog.json"
         data_policy = self.data_dir / "policy.json"
         config_catalog = configured_root / "catalog.json"
         config_policy = configured_root / "policy.json"
         if data_catalog.exists() != data_policy.exists() or config_catalog.exists() != config_policy.exists():
             raise ValueError("catalog.json and policy.json must be configured together")
-        if os.environ.get("CAPMGR_CONFIG_DIR") or config_catalog.exists():
+        if self._forced_config_root or config_catalog.exists():
             local_catalog, local_policy = config_catalog, config_policy
         else:
             local_catalog, local_policy = data_catalog, data_policy
-        include_claude_catalog = (
-            (os.environ.get("CAPMGR_INCLUDE_CLAUDE_CATALOG") == "1" or
-             (os.environ.get("CAPMGR_INCLUDE_CLAUDE_CATALOG") != "0" and
-              bool(os.environ.get("CLAUDE_PLUGIN_DATA")))) and
-            catalog_paths is None and not configured
-            if include_claude_catalog is None else include_claude_catalog
-        )
-        self.catalog_paths = catalog_paths if catalog_paths is not None else (
+        self.catalog_paths = self._explicit_catalog_paths if self._explicit_catalog_paths is not None else (
             [Path(item) for item in configured.split(os.pathsep) if item]
             if configured else [local_catalog if local_catalog.exists()
                              else ROOT / "examples/catalog.json"]
         )
-        if include_claude_catalog and not configured and not local_catalog.exists() and catalog_paths is None:
+        if ((self._include_claude or self._include_codex) and not configured and
+                not local_catalog.exists() and self._explicit_catalog_paths is None):
             self.catalog_paths = []
-        self.policy_path = policy_path or Path(os.environ.get(
-            "CAPMGR_POLICY", str(local_policy if local_policy.exists()
-                                 else ROOT / "examples/policy.json")))
-        self.policy = Policy.load(self.policy_path)
-        self.catalog = load_catalog(self.catalog_paths)
-        if include_claude_catalog:
-            from .claude_catalog import discover
-            discovered = discover()
-            for identifier, entry in discovered.items():
-                self.catalog.setdefault(identifier, entry)
-            default_policy = (policy_path is None and not os.environ.get("CAPMGR_POLICY")
-                              and not local_policy.exists())
-            if default_policy:
-                publishers = set(self.policy.publishers)
-                roots = set(self.policy.local_roots)
-                hosts = set(self.policy.download_hosts)
-                for entry in discovered.values():
-                    publishers.add(entry.publisher)
-                    if entry.source["type"] == "directory":
-                        roots.add(Path(entry.source["path"]).resolve())
-                    elif entry.source["type"] == "git":
-                        hosts.add(urlparse(entry.source["url"]).hostname)
-                self.policy = replace(self.policy, publishers=sorted(publishers),
-                                      local_roots=sorted(roots), download_hosts=sorted(hosts))
-        include_codex_catalog = (os.environ.get("CAPMGR_INCLUDE_CODEX_CATALOG") == "1"
-                                 if include_codex_catalog is None else include_codex_catalog)
-        if include_codex_catalog:
-            from .codex_catalog import discover
-            for identifier, entry in discover().items():
-                self.catalog.setdefault(identifier, entry)
-        self.installer = Installer(self.data_dir / "cache", self.policy)
-        self.store = Store(self.data_dir / "state.sqlite3", runtime_platform(), __version__)
-        self.router = DecisionRouter(self.policy)
-        self.connections = {}
-        self.tool_catalogs = {}
+        self.policy_path = self._explicit_policy_path or Path(self._configured_policy or
+            str(local_policy if local_policy.exists() else ROOT / "examples/policy.json"))
+        default_policy = (self._explicit_policy_path is None and not self._configured_policy
+                          and not local_policy.exists())
+        return self.catalog_paths, self.policy_path, default_policy
+
+    def refresh_catalog(self, local_only=True, sync_remote=False, force=False):
+        self.index.refresh(local_only, sync_remote, force)
+        with self.index.lock:
+            self.catalog, self.policy = self.index.catalog, self.index.policy
+            self.installer.policy = self.policy
+            self.router.policy = self.policy
+        return self.index.status()
+
+    def read_static(self, task, context=""):
+        from .readonly_skill import read_static_skill
+        with self.index.lock:
+            self.refresh_catalog()
+            return read_static_skill(self.catalog, self.policy, self.installer.cache_dir, task, context)
 
     def _entry(self, capability_id: str) -> Entry:
         try:
@@ -126,9 +137,14 @@ class CapabilityManager:
         check_storage(self.data_dir, expected_storage_id)
 
     def runtime_status(self, session_id: Optional[str] = None) -> Dict[str, Any]:
-        return {**runtime_status(self.data_dir, self.store, session_id), "catalog_entries": len(self.catalog)}
+        with self.index.lock:
+            return {**runtime_status(self.data_dir, self.store, session_id),
+                    "catalog_entries": len(self.index.catalog), "catalog_status": self.index.status()}
 
     def _prepare(self, entry: Entry, session_id: str) -> Path:
+        previous = self.session_entries.get((session_id, entry.id))
+        if previous and previous != entry and self.store.is_active(session_id, entry.id):
+            raise ActiveVersionChanged("capability changed; release its current session access before reactivation")
         self.store.record_preparation(session_id, entry.summary())
         cached = self.installer.package_path(entry).is_dir()
         package = self.installer.install(entry)
@@ -150,6 +166,7 @@ class CapabilityManager:
         existing = self.store.prompt_observation(turn_id)
         if existing:
             return {"decision_id": existing, "turn_id": turn_id, "already_observed": True}
+        self.refresh_catalog()
         eligible = []
         for entry in self.catalog.values():
             try:
@@ -178,6 +195,7 @@ class CapabilityManager:
                static_only: bool = False,
                expected_storage_id: Optional[str] = None) -> Dict[str, Any]:
         self.check_storage(expected_storage_id)
+        self.refresh_catalog(local_only=False)
         started = time.monotonic()
         eligible = []
         unavailable = []
@@ -196,6 +214,11 @@ class CapabilityManager:
                 eligible.append(entry)
             except (PermissionError, ValueError) as exc:
                 unavailable.append({"id": entry.id, "reason": str(exc)})
+        unavailable_count = len(unavailable)
+        if len(unavailable) > 8:
+            ranked = lexical_rank(task + " " + context, [self.catalog[item["id"]] for item in unavailable])
+            selected = {entry.id for entry, _ in ranked[:8]}
+            unavailable = [item for item in unavailable if item["id"] in selected]
         try:
             decision = self.router.rank(task, eligible, context)
         except Exception as exc:
@@ -231,6 +254,8 @@ class CapabilityManager:
             "decision": {key: value for key, value in decision.items() if key != "candidates"},
             "candidates": candidates,
             "unavailable": unavailable,
+            "unavailable_count": unavailable_count,
+            "catalog_status": self.index.status(),
             "storage_id": storage_id(self.data_dir),
             "context_key": self._session_context_key(session_id, context),
             "context_source": "session" if session_id and self.store.session_context(session_id)
@@ -295,9 +320,11 @@ class CapabilityManager:
             if not instructions["skills"]:
                 raise ValueError("package has no skill instructions")
             self.store.activate(session_id, chosen)
+            self.session_entries[(session_id, chosen)] = entry
             self.store.mark_delivery(session_id, chosen, "ready", "static_skill")
         except PermissionError as exc:
-            self.store.mark_delivery(session_id, chosen, "requires_review")
+            if not isinstance(exc, ActiveVersionChanged):
+                self.store.mark_delivery(session_id, chosen, "requires_review")
             self.store.mark_decision(search["decision_id"], "requires_review")
             self.store.add_event(session_id, "activation_failed", "requires_review",
                                  turn_id=turn_id, decision_id=search["decision_id"],
@@ -323,6 +350,7 @@ class CapabilityManager:
     def activate(self, capability_id: str, session_id: str, task: str = "") -> Dict[str, Any]:
         if not session_id or len(session_id) > 200:
             raise ValueError("invalid session id")
+        self.refresh_catalog()
         started = time.monotonic()
         decision_id = self.store.latest_decision_id(session_id, capability_id)
         verified_id = None
@@ -336,6 +364,7 @@ class CapabilityManager:
             if not instructions["skills"] and not servers:
                 raise ValueError("installed package has no supported capability")
             self.store.activate(session_id, capability_id)
+            self.session_entries[(session_id, capability_id)] = entry
             lease_created = True
             output = {"id": capability_id, "kind": entry.kind, **instructions,
                       "mcp_servers": {}, "connection_errors": []}
@@ -367,7 +396,7 @@ class CapabilityManager:
                             self.connections.pop(key).close()
                         except Exception:
                             pass
-            if verified_id:
+            if verified_id and not isinstance(exc, ActiveVersionChanged):
                 self.store.mark_delivery(session_id, capability_id,
                                          "requires_review" if isinstance(exc, PermissionError) else "failed")
             self.store.add_event(session_id, "activation_failed", "error",
@@ -403,7 +432,8 @@ class CapabilityManager:
     def _connection(self, session_id: str, capability_id: str, server_name: str):
         if not self.store.is_active(session_id, capability_id):
             raise PermissionError("capability is not active in this session")
-        entry = self._entry(capability_id)
+        entry = self.session_entries.get((session_id, capability_id)) or self._entry(capability_id)
+        self.policy.check_entry(entry)
         package = self.installer.package_path(entry)
         configs = server_configs(package)
         if server_name not in configs:
@@ -428,6 +458,7 @@ class CapabilityManager:
 
     def invoke(self, session_id: str, capability_id: str, server_name: str,
                tool_name: str, arguments: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        self.refresh_catalog()
         started = time.monotonic()
         decision_id = self.store.latest_decision_id(session_id, capability_id)
         verified_capability = None
@@ -511,6 +542,7 @@ class CapabilityManager:
         return {"decisions": self.store.decisions(days, limit, pending_only)}
 
     def prefetch(self, context: str) -> Dict[str, Any]:
+        self.refresh_catalog()
         key = context_key(context)
         installed = []
         for capability_id in self.store.warm_ids(key):
@@ -529,6 +561,9 @@ class CapabilityManager:
         if not isinstance(session_id, str) or not session_id or len(session_id) > 200:
             raise ValueError("invalid session id")
         released = self.store.release(session_id)
+        for key in list(self.session_entries):
+            if key[0] == session_id:
+                self.session_entries.pop(key)
         cleanup_errors = []
         for key in list(self.connections):
             if key[0] == session_id:

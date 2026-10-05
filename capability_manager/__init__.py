@@ -1,3 +1,3 @@
 """Session-scoped discovery and activation of agent capabilities."""
 
-__version__ = "0.1.11"
+__version__ = "0.1.12"
