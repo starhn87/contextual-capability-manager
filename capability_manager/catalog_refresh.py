@@ -132,7 +132,8 @@ class CatalogIndex:
                         continue
                     publishers.add(entry.publisher)
                 policy = replace(policy, publishers=sorted(publishers), local_roots=sorted(roots),
-                                 download_hosts=sorted(hosts))
+                                 download_hosts=sorted(hosts),
+                                 native_marketplaces=["openai-curated", "openai-curated-remote"] if self.codex else [])
             for identifier, entry in discovered.items():
                 catalog.setdefault(identifier, entry)
             self.catalog, self.policy = catalog, policy

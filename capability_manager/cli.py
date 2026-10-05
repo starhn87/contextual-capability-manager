@@ -1,5 +1,6 @@
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from . import __version__
@@ -47,6 +48,10 @@ def main() -> None:
     activate = sub.add_parser("activate")
     activate.add_argument("capability_id")
     activate.add_argument("--session", required=True)
+    resume = sub.add_parser("resume", help="Resume installation and OAuth setup in its owning session")
+    resume.add_argument("setup_id")
+    resume.add_argument("--session", required=True)
+    resume.add_argument("--retry", action="store_true")
     call = sub.add_parser("call")
     call.add_argument("capability_id")
     call.add_argument("server_name")
@@ -121,6 +126,8 @@ def main() -> None:
         result = manager.resolve(args.task, args.session, args.context, args.turn)
     elif args.command == "activate":
         result = manager.activate(args.capability_id, args.session)
+    elif args.command == "resume":
+        result = manager.resume_setup(args.session, args.setup_id, retry=args.retry)
     elif args.command == "call":
         result = manager.invoke(args.session, args.capability_id, args.server_name,
                                 args.tool_name, json.loads(args.arguments))
@@ -143,6 +150,20 @@ def main() -> None:
         result = manager.prefetch(args.context)
     else:
         result = manager.release(args.session)
+    capability = result.get("capability", result)
+    if capability.get("availability") == "awaiting_auth":
+        print("계정 로그인: " + capability["authorization_url"], file=sys.stderr, flush=True)
+        # Keep the loopback callback alive; exiting here would invalidate the login link.
+        try:
+            while capability.get("availability") == "awaiting_auth":
+                capability = manager.resume_setup(args.session, capability["setup_id"], wait_seconds=50)
+            result = capability
+        finally:
+            manager.release(args.session)
+        if result.get("availability") == "ready":
+            result["availability"] = "verified_then_released"
+            result["resume"] = {"action": "use_persistent_mcp_session",
+                "instruction": "CLI verified the connection and released it on exit. Use the persistent manager MCP server for same-session OAuth tool use."}
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

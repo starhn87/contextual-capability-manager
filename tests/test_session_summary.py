@@ -50,7 +50,7 @@ class SessionSummaryTests(unittest.TestCase):
         manager = self.fixture.manager()
         summary = manager.session_summary('empty')
         self.assertEqual(summary['counts'], {
-            'capabilities': 0, 'new_packages': 0, 'cache_reused': 0, 'active': 0, 'released': 0})
+            'capabilities': 0, 'new_packages': 0, 'cache_reused': 0, 'native_reused': 0, 'active': 0, 'released': 0})
         guidance = json.loads(submitted.stdout)['hookSpecificOutput']['additionalContext']
         self.assertIn(summary['summary_markdown'], guidance)
         self.assertIn('추가 설치 0', summary['summary_markdown'])

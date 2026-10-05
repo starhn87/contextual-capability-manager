@@ -22,7 +22,23 @@ SEARCH_STOPWORDS = {
 }
 
 
+def named_entries(task: str, entries: List[Entry]) -> List[Entry]:
+    """A named service is a constraint, even when its connector is unavailable."""
+    matches = []
+    for entry in entries:
+        extra = entry.source.get("aliases", [])
+        aliases = [entry.name] + (extra if isinstance(extra, list) else [])
+        if any(len(alias) >= 3 and re.search(
+                r"(?<![a-z0-9])" + re.escape(alias) + r"(?=$|[^a-z0-9])",
+                task, re.IGNORECASE) for alias in aliases if isinstance(alias, str)):
+            matches.append(entry)
+    return matches
+
+
 def lexical_rank(task: str, entries: List[Entry]) -> List[Tuple[Entry, float]]:
+    named = named_entries(task, entries)
+    if named:
+        entries = named
     query = _terms(task) - SEARCH_STOPWORDS
     results = []
     for entry in entries:
@@ -70,7 +86,7 @@ PROJECT_REFERENCE = re.compile(
 )
 WORK_ACTION = re.compile(
     r"\b(?:put|turn|create|prepare|follow|show|look\s+up|read|use|apply|check|"
-    r"fetch|retrieve|current|live|latest)\b"
+    r"fetch|retrieve|search|find|list|current|live|latest)\b"
     r"|정리|조회|확인|적용|만들|작성|찾|따라|현재|최신",
     re.IGNORECASE,
 )

@@ -1,6 +1,6 @@
 {
   "name": "contextual-capability-manager",
-  "version": "0.1.14",
+  "version": "0.2.0",
   "description": "Discover, install, and use approved agent skills and MCP tools during an active task.",
   "author": {
     "name": "Local developer"

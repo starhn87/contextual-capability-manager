@@ -1,5 +1,7 @@
 import hashlib
+import json
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -8,6 +10,7 @@ from .catalog import Entry
 from .catalog_refresh import CatalogIndex
 from .decision import (CAPABILITY_REJECTION, SUPPLIED_MATERIAL, DecisionRouter,
                        lexical_decision, lexical_rank)
+from .decision import named_entries
 from .installer import Installer, check_static_skill
 from .instructions import read_skills
 from .mcp_bridge import connect, server_configs
@@ -16,6 +19,9 @@ from .store import Store
 from .runtime import (data_dir as runtime_data_dir, platform as current_platform,
                       storage_id, check_storage, status as runtime_status)
 from .session_summary import receipt, save_receipt, markdown as summary_markdown
+from .native_setup import (CodexInstaller, OAuthFlow, OAuthConnection, connection_policy,
+                           authentication_required)
+from .mcp_bridge import HttpConnection
 from . import __version__
 
 
@@ -77,6 +83,9 @@ class CapabilityManager:
         self.connections = {}
         self.tool_catalogs = {}
         self.session_entries = {}
+        self.native_installer = CodexInstaller()
+        self.native_flows = {}
+        self.native_lock = threading.RLock()
 
     def _catalog_configuration(self):
         configured = self._configured_catalogs
@@ -203,6 +212,8 @@ class CapabilityManager:
             try:
                 self.policy.check_entry(entry)
                 if static_only:
+                    if entry.source["type"] == "native":
+                        continue
                     if entry.source["type"] == "https_zip":
                         continue
                     if entry.source["type"] == "directory":
@@ -215,6 +226,23 @@ class CapabilityManager:
             except (PermissionError, ValueError) as exc:
                 unavailable.append({"id": entry.id, "reason": str(exc)})
         unavailable_count = len(unavailable)
+        named = named_entries(task + " " + context, list(self.catalog.values()))
+        if named:
+            named_ids = {entry.id for entry in named}
+            eligible = [entry for entry in eligible if entry.id in named_ids]
+        # The curated local mirror and remote listing can refer to the same service.
+        canonical = {}
+        for entry in eligible:
+            key = (entry.name, json.dumps(entry.source.get("connection"), sort_keys=True))
+            if (entry.source["type"] == "native" and entry.source.get("marketplace") in
+                    ("openai-curated", "openai-curated-remote") and entry.source.get("connection")):
+                previous = canonical.get(key)
+                if previous is None or (entry.source.get("installed", False), entry.publisher == "openai-curated-remote") > (
+                        previous.source.get("installed", False), previous.publisher == "openai-curated-remote"):
+                    canonical[key] = entry
+            else:
+                canonical[(entry.id,)] = entry
+        eligible = list(canonical.values())
         if len(unavailable) > 8:
             ranked = lexical_rank(task + " " + context, [self.catalog[item["id"]] for item in unavailable])
             selected = {entry.id for entry, _ in ranked[:8]}
@@ -296,7 +324,7 @@ class CapabilityManager:
             self.store.mark_decision(search["decision_id"], "activation_failed")
             raise
         status = {"ready": "activated", "partial": "partially_activated",
-                  "unavailable": "unavailable"}[capability["availability"]]
+                  "unavailable": "unavailable"}.get(capability["availability"], capability["availability"])
         self.store.mark_decision(search["decision_id"], status)
         return {"status": status, "search": search, "capability": capability}
 
@@ -351,6 +379,10 @@ class CapabilityManager:
         if not session_id or len(session_id) > 200:
             raise ValueError("invalid session id")
         self.refresh_catalog()
+        entry = self._entry(capability_id)
+        if entry.source["type"] == "native":
+            with self.native_lock:
+                return self._setup_native(entry, session_id, task)
         started = time.monotonic()
         decision_id = self.store.latest_decision_id(session_id, capability_id)
         verified_id = None
@@ -429,11 +461,220 @@ class CapabilityManager:
                              duration_ms=int((time.monotonic()-started)*1000))
         return output
 
+    @staticmethod
+    def _native_fingerprint(entry):
+        value = {key: entry.source.get(key) for key in ("plugin_name", "marketplace", "connection")}
+        value["permissions"] = entry.permissions
+        return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+    def _setup_view(self, setup, **extra):
+        return {"id": setup["capability_id"], "setup_id": setup["id"],
+                "availability": setup["status"], "kind": "plugin", "mcp_servers": {},
+                "connection_errors": [], "task_hash": setup["task_hash"], **extra}
+
+    def _setup_state(self, setup, status, **updates):
+        updated = self.store.update_setup(setup["session_id"], setup["id"], status, **updates)
+        self.store.mark_delivery(setup["session_id"], setup["capability_id"], status, "native_gateway")
+        self.store.add_event(setup["session_id"], "capability_setup", status,
+                             capability_id=setup["capability_id"])
+        return updated
+
+    def _setup_native(self, entry, session_id, task):
+        self.policy.check_native(entry)
+        if self.store.platform != "codex":
+            raise PermissionError("native installation requires the Codex runtime")
+        fingerprint = self._native_fingerprint(entry)
+        setup = self.store.setup(session_id, entry.id)
+        if setup and setup["status"] != "cancelled":
+            if setup["fingerprint"] != fingerprint:
+                raise ActiveVersionChanged("native connector changed; release this session before setup")
+            return self.resume_setup(session_id, setup["id"])
+        setup = self.store.save_setup(session_id, entry.id, context_key(task), fingerprint, entry.version)
+        self.store.record_preparation(session_id, entry.summary())
+        setup = self._setup_state(setup, "installing")
+        try:
+            installed = self.native_installer.install(entry, self.policy)
+        except Exception as exc:
+            status = "requires_review" if isinstance(exc, PermissionError) else "installation_failed"
+            setup = self._setup_state(setup, status)
+            return self._setup_view(setup, reason=str(exc) if isinstance(exc, PermissionError) else type(exc).__name__)
+        self.store.record_preparation(session_id, {**entry.summary(), "version": installed["version"]},
+                                      installed["package_state"])
+        self.store.add_event(session_id, "native_installation", installed["package_state"], capability_id=entry.id)
+        setup = self._setup_state(setup, "installed", **installed)
+        return self._connect_native(entry, setup)
+
+    def _native_allowed(self, entry, config, tool):
+        name = tool.get("name", "")
+        if not isinstance(name, str) or not name:
+            return False
+        # Both server endpoint and OAuth scope enforce reads on the built-in adapter.
+        official_read = (entry.source.get("plugin_name") == "linear" and
+            entry.source.get("marketplace") in ("openai-curated", "openai-curated-remote") and
+            config.get("url") == "https://mcp.linear.app/mcp/readonly" and config.get("scopes") == ["read"])
+        if official_read:
+            return tool.get("annotations", {}).get("readOnlyHint") is True
+        try:
+            self.policy.check_tool(entry.id, name, tool.get("annotations", {}).get("readOnlyHint") is True)
+            return True
+        except PermissionError:
+            return False
+
+    def _connect_native(self, entry, setup, flow=None):
+        try:
+            self.native_installer.verify(entry, self.policy)
+            config, policy = connection_policy(entry, self.policy)
+        except PermissionError as exc:
+            self.store.deactivate(setup["session_id"], entry.id)
+            return self._setup_view(self._setup_state(setup, "requires_review"), reason=str(exc))
+        except (ValueError, KeyError) as exc:
+            return self._setup_view(self._setup_state(setup, "connection_failed"), reason=type(exc).__name__)
+        if config is None:
+            from urllib.parse import quote
+            setup = self._setup_state(setup, "requires_host_activation")
+            return self._setup_view(setup, reason="Native plugin installed; no supported same-session connection adapter is available",
+                platform_url="codex://plugins/" + quote(entry.source["plugin_name"] + "@" + entry.source["marketplace"], safe="@"))
+        if flow is None:
+            connection = HttpConnection(config["url"], None, policy)
+        else:
+            connection = OAuthConnection(config["url"], policy, flow)
+        try:
+            connection.initialize()
+            tools, cursor, cursors = [], None, set()
+            for _ in range(20):
+                response = connection.request("tools/list", {"cursor": cursor} if cursor else {})
+                page = response.get("tools")
+                if not isinstance(page, list) or not all(isinstance(tool, dict) for tool in page):
+                    raise ValueError("invalid MCP tools/list response")
+                tools.extend(page)
+                cursor = response.get("nextCursor")
+                if not cursor:
+                    break
+                if not isinstance(cursor, str) or cursor in cursors:
+                    raise ValueError("invalid MCP tools/list cursor")
+                cursors.add(cursor)
+            else:
+                raise ValueError("MCP tool catalog exceeds page limit")
+            tools = [tool for tool in tools if self._native_allowed(entry, config, tool)]
+            if not tools:
+                raise PermissionError("MCP server has no policy-approved tools")
+        except Exception as exc:
+            try:
+                connection.close()
+            except Exception:
+                pass
+            if authentication_required(exc):
+                if flow:
+                    flow.close()
+                    self.native_flows.pop(setup["id"], None)
+                return self._start_auth(entry, setup, config, policy)
+            setup = self._setup_state(setup, "requires_review" if isinstance(exc, PermissionError) else "connection_failed")
+            return self._setup_view(setup, reason=type(exc).__name__)
+        key = (setup["session_id"], entry.id, config.get("server_name", "connector"))
+        previous = self.connections.pop(key, None)
+        if previous:
+            try:
+                previous.close()
+            except Exception:
+                pass
+        self.connections[key], self.tool_catalogs[key] = connection, tools
+        self.session_entries[key[:2]] = entry
+        self.store.activate(setup["session_id"], entry.id)
+        setup = self._setup_state(setup, "ready")
+        self.store.add_event(setup["session_id"], "capability_resumed", "ready", capability_id=entry.id)
+        if flow:
+            flow.stop_callback()
+        return self._setup_view(setup, mcp_servers={key[2]: tools},
+            resume={"action": "continue_original_task", "task_hash": setup["task_hash"],
+                    "instruction": "Continue the original user request in this conversation using the verified tools. Do not ask the user to repeat it."})
+
+    def _start_auth(self, entry, setup, config, policy):
+        self.store.deactivate(setup["session_id"], entry.id)
+        def owner_valid():
+            current = self.store.setup(setup["session_id"], setup_id=setup["id"])
+            return bool(current and current["status"] != "cancelled")
+        try:
+            flow = OAuthFlow(config, policy, owner_valid=owner_valid)
+        except Exception as exc:
+            setup = self._setup_state(setup, "authentication_failed")
+            return self._setup_view(setup, reason=type(exc).__name__)
+        self.native_flows[setup["id"]] = flow
+        setup = self._setup_state(setup, "awaiting_auth")
+        return self._setup_view(setup, authorization_url=flow.authorization_url,
+            authentication={"method": "oauth_pkce", "scopes": config["scopes"], "expires_in": flow.ttl,
+                "instruction": "Ask only for account login/consent at authorization_url. Wait with resume_capability_setup; the callback completes automatically."})
+
+    def resume_setup(self, session_id, setup_id, wait_seconds=0, retry=False):
+        if (not isinstance(wait_seconds, (int, float)) or isinstance(wait_seconds, bool)
+                or not 0 <= wait_seconds <= 50):
+            raise ValueError("wait_seconds must be between 0 and 50")
+        with self.native_lock:
+            self.refresh_catalog()
+            setup = self.store.setup(session_id, setup_id=setup_id)
+            if not setup:
+                raise ValueError("unknown setup for this session")
+            if setup["status"] == "cancelled":
+                return self._setup_view(setup)
+            entry = self._entry(setup["capability_id"])
+            self.policy.check_native(entry)
+            if setup["fingerprint"] != self._native_fingerprint(entry):
+                raise ActiveVersionChanged("native connector changed; release this session before setup")
+            flow = self.native_flows.get(setup_id)
+            config, policy = connection_policy(entry, self.policy)
+            if setup["status"] == "ready" and self.store.is_active(session_id, entry.id) and not retry:
+                try:
+                    self.native_installer.verify(entry, self.policy)
+                except PermissionError as exc:
+                    self.store.deactivate(session_id, entry.id)
+                    return self._setup_view(self._setup_state(setup, "requires_review"), reason=str(exc))
+                keys = [key for key in self.connections if key[:2] == (session_id, entry.id)]
+                if keys and (flow is None or flow.status() == "authenticated"):
+                    return self._setup_view(setup, mcp_servers={key[2]: self.tool_catalogs[key] for key in keys},
+                        resume={"action": "continue_original_task", "task_hash": setup["task_hash"]})
+                self.store.deactivate(session_id, entry.id)
+            if setup["package_state"] == "not_prepared":
+                if not retry:
+                    return self._setup_view(setup)
+                # Retry verifies the host first, so a completed install is reused.
+                installed = self.native_installer.install(entry, self.policy)
+                self.store.record_preparation(session_id, {**entry.summary(), "version": installed["version"]}, installed["package_state"])
+                setup = self._setup_state(setup, "installed", **installed)
+            if retry and flow:
+                flow.close()
+                self.native_flows.pop(setup_id, None)
+                flow = None
+            if flow:
+                status = flow.status(wait_seconds)
+                if status == "authenticated":
+                    return self._connect_native(entry, setup, flow)
+                if status == "awaiting_auth":
+                    return self._setup_view(setup, authorization_url=flow.authorization_url)
+                setup = self._setup_state(setup, status)
+                if not retry:
+                    return self._setup_view(setup)
+                flow.close()
+                self.native_flows.pop(setup_id, None)
+            elif setup["status"] == "awaiting_auth" and not retry:
+                return self._setup_view(self._setup_state(setup, "expired"), reason="manager restarted; retry authentication")
+            if retry and config:
+                return self._start_auth(entry, setup, config, policy)
+            return self._connect_native(entry, setup)
+
     def _connection(self, session_id: str, capability_id: str, server_name: str):
         if not self.store.is_active(session_id, capability_id):
             raise PermissionError("capability is not active in this session")
         entry = self.session_entries.get((session_id, capability_id)) or self._entry(capability_id)
         self.policy.check_entry(entry)
+        if entry.source["type"] == "native":
+            current = self._entry(capability_id)
+            self.policy.check_native(current)
+            if self._native_fingerprint(current) != self._native_fingerprint(entry):
+                raise ActiveVersionChanged("native connector changed; release this session before setup")
+            self.native_installer.verify(current, self.policy)
+            key = (session_id, capability_id, server_name)
+            if key not in self.connections:
+                raise PermissionError("native connection needs setup or authentication")
+            return self.connections[key]
         package = self.installer.package_path(entry)
         configs = server_configs(package)
         if server_name not in configs:
@@ -463,6 +704,7 @@ class CapabilityManager:
         decision_id = self.store.latest_decision_id(session_id, capability_id)
         verified_capability = None
         verified_tool = None
+        entry = None
         try:
             tools = self.list_tools(session_id, capability_id, server_name)
             verified_capability = capability_id
@@ -471,7 +713,14 @@ class CapabilityManager:
                 raise ValueError("tool was not advertised by the MCP server")
             verified_tool = tool_name
             read_only = selected.get("annotations", {}).get("readOnlyHint") is True
-            self.policy.check_tool(capability_id, tool_name, read_only)
+            entry = self.session_entries.get((session_id, capability_id)) or self._entry(capability_id)
+            if entry.source["type"] == "native":
+                self.policy.check_native(self._entry(capability_id))
+                config, _ = connection_policy(entry, self.policy)
+                if not self._native_allowed(entry, config, selected):
+                    raise PermissionError("tool is outside the approved action list")
+            else:
+                self.policy.check_tool(capability_id, tool_name, read_only)
             if arguments is not None and not isinstance(arguments, dict):
                 raise ValueError("tool arguments must be an object")
             result = self._connection(session_id, capability_id, server_name).request(
@@ -483,6 +732,16 @@ class CapabilityManager:
                                  tool_name=verified_tool,
                                  error_type=type(exc).__name__,
                                  duration_ms=int((time.monotonic()-started)*1000))
+            if (verified_capability and entry and entry.source["type"] == "native"
+                    and authentication_required(exc) and self.store.is_active(session_id, capability_id)):
+                with self.native_lock:
+                    setup = self.store.setup(session_id, capability_id)
+                    flow = self.native_flows.pop(setup["id"], None)
+                    if flow:
+                        flow.close()
+                    config, policy = connection_policy(entry, self.policy)
+                    renewed = self._start_auth(entry, setup, config, policy)
+                return {"isError": True, "error": "authentication_required", "capability_setup": renewed}
             raise
         self.store.add_event(session_id, "tool_call",
                              "tool_error" if result.get("isError") else "completed",
@@ -547,6 +806,8 @@ class CapabilityManager:
         installed = []
         for capability_id in self.store.warm_ids(key):
             if capability_id in self.catalog:
+                if self.catalog[capability_id].source["type"] == "native":
+                    continue
                 self.installer.install(self.catalog[capability_id])
                 installed.append(capability_id)
         return {"context_key": key, "prefetched": installed}
@@ -561,6 +822,7 @@ class CapabilityManager:
         if not isinstance(session_id, str) or not session_id or len(session_id) > 200:
             raise ValueError("invalid session id")
         released = self.store.release(session_id)
+        self.store.cancel_setups(session_id)
         for key in list(self.session_entries):
             if key[0] == session_id:
                 self.session_entries.pop(key)
@@ -574,6 +836,13 @@ class CapabilityManager:
                     cleanup_errors.append({"capability_id": key[1], "error_type": type(exc).__name__})
                     self.store.add_event(session_id, "connection_cleanup", "error",
                                          capability_id=key[1], error_type=type(exc).__name__)
+        for setup_id in list(self.native_flows):
+            if self.store.setup(session_id, setup_id=setup_id):
+                try:
+                    self.native_flows.pop(setup_id).close()
+                except Exception as exc:
+                    cleanup_errors.append({"setup_id": setup_id, "error_type": type(exc).__name__})
+                    self.store.add_event(session_id, "connection_cleanup", "error", error_type=type(exc).__name__)
         for identifier in released:
             self.store.add_event(session_id, "capability_released", "revoked", capability_id=identifier)
         self.store.add_event(session_id, "session_released",

@@ -31,18 +31,25 @@ def _manifest(package: Path):
 def parse_listing(document: Dict[str, object]) -> Dict[str, Entry]:
     entries = {}
     for item in document.get("available", []) + document.get("installed", []):
-        if not isinstance(item, dict) or item.get("installed") is not False:
+        if not isinstance(item, dict):
             continue
         name = str(item.get("name") or "")
         if not name or name == "contextual-capability-manager":
             continue
         market = str(item.get("marketplaceName") or "unknown")
+        supported = name == "linear" and market in ("openai-curated", "openai-curated-remote")
+        if item.get("installed") is not False and not supported:
+            continue
         identifier = _identifier(name, market)
         source = item.get("source") or {}
         if not isinstance(source, dict):
             source = {}
         package = None
-        package_source = {"type": "native", "plugin_id": item.get("pluginId", name + "@" + market)}
+        native_source = {"type": "native", "plugin_id": item.get("pluginId", name + "@" + market),
+                         "plugin_name": name, "marketplace": market,
+                         "install_policy": item.get("installPolicy"),
+                         "auth_policy": item.get("authPolicy"), "installed": item.get("installed") is True}
+        package_source = native_source
         if source.get("source") == "local" and isinstance(source.get("path"), str):
             package = Path(source["path"]).expanduser().resolve()
         if item.get("installPolicy") not in (None, "AVAILABLE"):
@@ -90,6 +97,13 @@ def parse_listing(document: Dict[str, object]) -> Dict[str, Entry]:
             "source": package_source,
             "permissions": {"execute": has_executable},
         }
+        if supported:
+            native_source["aliases"] = ["리니어"]
+            native_source["connection"] = {
+                "server_name": "linear", "url": "https://mcp.linear.app/mcp/readonly",
+                "scopes": ["read"], "read_only_endpoint": True,
+                "oauth_hosts": ["mcp.linear.app", "linear.app", "api.linear.app"]}
+            raw["source"] = native_source
         try:
             entries[identifier] = Entry.parse(raw, (package.parent if package else Path.home()) /
                                              "codex-marketplace.json")

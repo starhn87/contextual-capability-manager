@@ -90,6 +90,19 @@ class Store:
                     released_at INTEGER,
                     PRIMARY KEY(session_id, capability_id)
                 );
+                CREATE TABLE IF NOT EXISTS capability_setups (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    capability_id TEXT NOT NULL,
+                    task_hash TEXT NOT NULL,
+                    fingerprint TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    version TEXT NOT NULL,
+                    package_state TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    UNIQUE(session_id, capability_id)
+                );
             """)
             columns = {row[1] for row in db.execute("PRAGMA table_info(outcomes)")}
             if "session_id" not in columns:
@@ -111,7 +124,8 @@ class Store:
         allowed = {"prompt_observed", "capability_searched", "capability_delivered",
                    "activation_failed", "tool_call", "outcome_reported",
                    "feedback_recorded", "session_released", "session_started",
-                   "capability_prepared", "capability_released", "connection_cleanup"}
+                   "capability_prepared", "capability_released", "connection_cleanup",
+                   "native_installation", "capability_setup", "capability_resumed"}
         if event_type not in allowed or not session_id:
             raise ValueError("invalid capability event")
         identifier = uuid.uuid4().hex
@@ -192,7 +206,7 @@ class Store:
 
     def record_preparation(self, session_id: str, metadata: Dict[str, Any],
                            package_state: str = "not_prepared") -> None:
-        if package_state not in ("not_prepared", "installed", "cache_reused"):
+        if package_state not in ("not_prepared", "installed", "cache_reused", "native_installed", "native_reused"):
             raise ValueError("invalid package preparation state")
         now = int(time.time())
         with self._connect() as db:
@@ -200,8 +214,8 @@ class Store:
                 VALUES(?, ?, ?, ?, ?, ?, 'prepared', 'unknown', ?, ?, NULL)
                 ON CONFLICT(session_id, capability_id) DO UPDATE SET
                     name=excluded.name, kind=excluded.kind, version=excluded.version,
-                    package_state=CASE WHEN session_capabilities.package_state='installed'
-                        THEN 'installed' WHEN excluded.package_state='not_prepared'
+                    package_state=CASE WHEN session_capabilities.package_state IN ('installed', 'native_installed')
+                        THEN session_capabilities.package_state WHEN excluded.package_state='not_prepared'
                         THEN session_capabilities.package_state ELSE excluded.package_state END,
                     first_prepared_at=CASE WHEN session_capabilities.kind='unknown'
                         THEN excluded.first_prepared_at ELSE session_capabilities.first_prepared_at END,
@@ -266,8 +280,9 @@ class Store:
             item["reported_result"] = latest_outcomes.get(identifier, "not_reported")
             capabilities.append(item)
         counts = {"capabilities": len(capabilities),
-                  "new_packages": sum(item["package_state"] == "installed" for item in capabilities),
+                  "new_packages": sum(item["package_state"] in ("installed", "native_installed") for item in capabilities),
                   "cache_reused": sum(item["package_state"] == "cache_reused" for item in capabilities),
+                  "native_reused": sum(item["package_state"] == "native_reused" for item in capabilities),
                   "active": sum(item["access_state"] == "active" for item in capabilities),
                   "released": sum(item["access_state"] == "released" for item in capabilities)}
         return {"session_id": session_id, "scope": "manager-mediated", "platform": self.platform,
@@ -279,6 +294,42 @@ class Store:
         with self._connect() as db:
             db.execute("INSERT OR REPLACE INTO session_contexts VALUES(?, ?)",
                        (session_id, context_key))
+
+    def setup(self, session_id, capability_id=None, setup_id=None):
+        with self._connect() as db:
+            db.row_factory = sqlite3.Row
+            row = db.execute("SELECT * FROM capability_setups WHERE session_id=? AND "
+                             "(? IS NULL OR capability_id=?) AND (? IS NULL OR id=?)",
+                             (session_id, capability_id, capability_id, setup_id, setup_id)).fetchone()
+        return dict(row) if row else None
+
+    def save_setup(self, session_id, capability_id, task_hash, fingerprint, version):
+        identifier, now = uuid.uuid4().hex, int(time.time())
+        with self._connect() as db:
+            db.execute("""INSERT INTO capability_setups VALUES(?, ?, ?, ?, ?, 'selected', ?,
+                'not_prepared', ?, ?) ON CONFLICT(session_id, capability_id) DO UPDATE SET
+                id=excluded.id, task_hash=excluded.task_hash, fingerprint=excluded.fingerprint,
+                status='selected', version=excluded.version, package_state='not_prepared',
+                created_at=excluded.created_at, updated_at=excluded.updated_at""",
+                (identifier, session_id, capability_id, task_hash, fingerprint, version, now, now))
+        return self.setup(session_id, setup_id=identifier)
+
+    def update_setup(self, session_id, setup_id, status, version=None, package_state=None):
+        with self._connect() as db:
+            db.execute("""UPDATE capability_setups SET status=?, updated_at=?,
+                version=COALESCE(?, version), package_state=COALESCE(?, package_state)
+                WHERE session_id=? AND id=?""",
+                (status, int(time.time()), version, package_state, session_id, setup_id))
+        return self.setup(session_id, setup_id=setup_id)
+
+    def cancel_setups(self, session_id):
+        with self._connect() as db:
+            db.execute("""UPDATE session_capabilities SET availability='cancelled'
+                WHERE session_id=? AND capability_id IN (SELECT capability_id FROM capability_setups
+                WHERE session_id=? AND status IN ('selected', 'installing', 'installed', 'awaiting_auth'))""",
+                (session_id, session_id))
+            db.execute("UPDATE capability_setups SET status='cancelled', updated_at=? WHERE session_id=?",
+                       (int(time.time()), session_id))
 
     def session_context(self, session_id: str) -> Optional[str]:
         with self._connect() as db:

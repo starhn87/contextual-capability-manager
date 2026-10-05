@@ -29,7 +29,12 @@ def server_instructions(platform: str) -> str:
         "Registered marketplaces are discovered automatically; local metadata and policy are reread "
         "at lookup and remote HTTPS Git catalogs refresh in independent background snapshots. "
         "Inspect capability_runtime_status.catalog_status for freshness or errors. Native-only "
-        "references still require platform installation or authentication. ")
+        "references use resolve_capability for actual Codex CLI installation and supported OAuth setup. "
+        "When awaiting_auth, show only the returned login link and use resume_capability_setup with "
+        "wait_seconds up to 50 until the callback completes or expires. Do not ask for installation "
+        "confirmation inside approved policy or ask the user to report that login finished. "
+        "Once ready, continue the original task with invoke_capability_tool in this same conversation. "
+        "Do not claim installation, connection or task success from a suggestion or login alone. ")
     if platform == "codex":
         return ("For routine requests, do not call release just because a hook supplied a session ID. "
                 "Binding and observation do not create capability access. If the session's prior "
@@ -76,7 +81,7 @@ TOOLS = [
     },
     {
         "name": "resolve_capability",
-        "description": "For a task requiring an approved MCP server or executable plugin, search and activate a matching capability. This can start external tools, so use only when static skill guidance is insufficient and platform permission allows it.",
+        "description": "Resolve a real missing tool/service: select the correct approved plugin, perform verified Codex native installation, begin supported OAuth if needed, and deliver usable tools. For awaiting_auth show its login link and call resume_capability_setup until ready, then continue the original request. This can install native plugins and start external tools; use within authorized task and policy.",
         "inputSchema": {"type": "object", "properties": {
             "task": {"type": "string", "description": "Short capability gap description; omit source text, private data, and secrets."}, "session_id": {"type": "string"},
             "turn_id": {"type": "string", "description": "Current turn ID from the prompt observer, when available."},
@@ -175,6 +180,15 @@ TOOLS = [
                         "required": ["session_id"], "additionalProperties": False},
     },
     {
+        "name": "resume_capability_setup",
+        "description": "Continue native installation/authentication setup in its owning session. After showing the returned OAuth login link, wait here for up to 50 seconds per call; callback completion verifies real tools and returns continue_original_task. Continue the existing request without asking the user to repeat it or confirm login completion. Retry expired/failed authentication with retry=true. Never send tokens or callback codes as arguments.",
+        "inputSchema": {"type": "object", "properties": {
+            "session_id": {"type": "string"}, "setup_id": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
+            "wait_seconds": {"type": "number", "minimum": 0, "maximum": 50},
+            "retry": {"type": "boolean"}}, "required": ["session_id", "setup_id"], "additionalProperties": False},
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": True},
+    },
+    {
         "name": "refresh_capability_catalog",
         "description": "Refresh metadata from registered marketplaces and reload local policy. HTTPS Git catalogs use independent manager snapshots without updating native installations, trusting hooks, activating tools, or connecting accounts. Automatic refresh normally handles this; use for a known new source or stale catalog. Inspect errors and freshness before claiming the latest list.",
         "inputSchema": {"type": "object", "properties": {
@@ -211,6 +225,8 @@ def _dispatch(manager: CapabilityManager, name: str, args: Dict[str, Any]) -> An
     if name == "resolve_capability":
         return manager.resolve(args["task"], args["session_id"], args.get("context", ""),
                                args.get("turn_id"))
+    if name == "resume_capability_setup":
+        return manager.resume_setup(args["session_id"], args["setup_id"], args.get("wait_seconds", 0), args.get("retry", False))
     if name == "search_capabilities":
         return manager.search(args["task"], args.get("context", ""), args.get("session_id"),
                               args.get("turn_id"))
@@ -289,6 +305,8 @@ def main() -> None:
             except Exception as exc:
                 manager.store.add_event(key[0], "connection_cleanup", "error",
                                         capability_id=key[1], error_type=type(exc).__name__)
+        for flow in manager.native_flows.values():
+            flow.close()
 
 
 if __name__ == "__main__":

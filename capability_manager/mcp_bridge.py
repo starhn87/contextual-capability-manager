@@ -41,6 +41,14 @@ class HttpConnection:
         self.session_id = None
         self.initialized = False
 
+    def auth_headers(self):
+        if not self.token_env:
+            return {}
+        secret = os.environ.get(self.token_env, "").strip()
+        if not secret:
+            raise PermissionError("connector authentication required: " + self.token_env)
+        return {"Authorization": "Bearer " + secret}
+
     def _send(self, payload: Dict[str, Any]):
         headers = {
             "Content-Type": "application/json",
@@ -49,11 +57,7 @@ class HttpConnection:
         }
         if self.session_id:
             headers["Mcp-Session-Id"] = self.session_id
-        if self.token_env:
-            secret = os.environ.get(self.token_env, "").strip()
-            if not secret:
-                raise PermissionError("connector authentication required: " + self.token_env)
-            headers["Authorization"] = "Bearer " + secret
+        headers.update(self.auth_headers())
         request = Request(
             self.url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST"
         )
@@ -96,8 +100,7 @@ class HttpConnection:
         if not self.session_id:
             return
         headers = {"Mcp-Session-Id": self.session_id, "MCP-Protocol-Version": PROTOCOL_VERSION}
-        if self.token_env and os.environ.get(self.token_env):
-            headers["Authorization"] = "Bearer " + os.environ[self.token_env].strip()
+        headers.update(self.auth_headers())
         open_no_redirect(Request(self.url, headers=headers, method="DELETE"), timeout=3).close()
 
 
