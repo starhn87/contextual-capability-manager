@@ -1,11 +1,15 @@
 ---
 name: adaptive-capabilities
-description: Use at the end of every completed request, including simple answers with zero capability additions, to show a manager installation and access receipt. Also find and apply approved missing capabilities.
+description: Find and apply approved missing capabilities when a task requires project-specific instructions or connected resources, even when the user does not name a skill. At the end of completed requests, show a manager installation and access receipt, including zero additions.
 ---
 
 # Adaptive capabilities
 
 Use this skill for the manager receipt when completing a request, and use the `capability_manager` MCP server when the task reveals a concrete capability gap. Select by the work and available descriptions; the user need not name a skill, plugin, or connector. A gap may become clear after reading a file, inspecting a repository, or trying an available tool. Routine tasks need no catalog search or preparation. If the complete history of this chat has no manager preparation or reactivation attempt and no earlier active access or cleanup error is known, append `추가 설치 0 · 캐시 재사용 0 · 권한 해제 0 · 활성 권한 0` without calling a write tool. If history is incomplete or earlier access may remain, inspect the actual session receipt or state that it is unverified.
+
+A request to follow a named team or project template, format, workflow, or connected resource is a concrete gap when its instructions or data are absent. Before drafting, call `read_static_skill` in Codex or `resolve_static_skill` in Claude for that missing context, even if the user never says "skill", "plugin", or "connector". Supplied meeting notes or task facts do not supply the team's missing format. Apply the returned instructions; if no confident match exists, explain that the requested format is unavailable instead of presenting a generic format as the team's own. Skip lookup when the required instructions are already available.
+
+Reading this already installed manager skill creates no managed capability access. It does not require `release_capability_session`. Catalog lookup and Codex `read_static_skill` also create no access; use their read receipt or inspect an uncertain session with `capability_session_summary`. Release only access that was actually prepared or reactivated.
 
 The manager discovers registered Codex and Claude marketplaces automatically, rereads local catalogs and policy at lookup, and refreshes registered HTTPS Git catalogs in independent snapshots while its MCP server runs. A catalog entry can be discoverable without being usable: native-only plugins and account connectors still need platform installation or authentication. Read `capability_runtime_status.catalog_status` to inspect candidate counts, refresh times, and errors. Use `refresh_capability_catalog` for a known new registration or stale remote list; ordinary work does not require a manual refresh. A sync error permits using a last valid snapshot but does not establish that it is current. Never install, trust a hook, or authenticate an account just to refresh metadata.
 
